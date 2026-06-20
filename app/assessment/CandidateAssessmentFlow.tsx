@@ -1,21 +1,25 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Camera,
   Check,
-  FileCode2,
+  ChevronDown,
+  Clock,
+  Code2,
+  Folder,
+  LogOut,
   Mic,
   MonitorUp,
-  Play,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import {
   joinAssessment,
   type CandidateAssessmentSession,
   type CandidateEntryState,
 } from "@/app/assessment/actions";
-import { CodebaseFilesModal } from "@/components/dashboard/CodebaseFilesModal";
+import type { CodebaseFile } from "@/app/dashboard/data";
 
 type LobbyStep = "entry" | "checks" | "expect" | "assessment";
 type CheckStatus = "idle" | "checking" | "ready" | "blocked";
@@ -451,43 +455,333 @@ function ExpectStep({
   );
 }
 
-function AssessmentStep({ session }: { session: CandidateAssessmentSession }) {
-  return (
-    <main className="min-h-screen bg-[#111510] px-4 py-5 text-white sm:px-6">
-      <div className="mx-auto flex min-h-[calc(100vh-40px)] max-w-[1200px] flex-col">
-        <header className="flex flex-col gap-3 border-b border-white/10 pb-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-mono text-xs font-bold uppercase tracking-[0.18em] text-primary">
-              Assessment in progress
-            </p>
-            <h1 className="mt-2 text-2xl font-black">{session.title}</h1>
-          </div>
-          <CodebaseFilesModal
-            files={session.codeFiles}
-            title={`${session.title} codebase`}
-            triggerLabel="Open code files"
-            variant="dark"
-          />
-        </header>
+const TK_MONO =
+  'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
 
-        <section className="grid flex-1 place-items-center py-10">
-          <div className="max-w-[700px] text-center">
-            <Play className="mx-auto text-primary" size={44} />
-            <h2 className="mt-5 text-[42px] font-black leading-tight">
-              Voice interview ready
-            </h2>
-            <p className="mt-4 text-base leading-7 text-white/72">
-              The interview surface is ready for the AI interviewer. Keep this
-              window full screen and continue speaking naturally.
-            </p>
-            <div className="mt-8 inline-flex items-center gap-3 border border-white/15 px-4 py-3 text-sm text-white/78">
-              <FileCode2 size={18} />
-              {session.codeFiles.length} code files loaded
+const workspaceCss = `
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@keyframes tk-pulse-height { 0%, 100% { height: 4px; } 50% { height: 16px; } }
+.tk-wf { animation: tk-pulse-height 1s ease-in-out infinite; }
+.tk-wf:nth-child(2) { animation-delay: 0.2s; }
+.tk-wf:nth-child(3) { animation-delay: 0.4s; }
+.tk-wf:nth-child(4) { animation-delay: 0.6s; }
+.tk-wf:nth-child(5) { animation-delay: 0.8s; }
+.tk-scope { font-family: 'Inter', sans-serif; }
+.tk-mono { font-family: ${TK_MONO}; }
+.tk-scope ::-webkit-scrollbar { width: 8px; height: 8px; }
+.tk-scope ::-webkit-scrollbar-track { background: transparent; }
+.tk-scope ::-webkit-scrollbar-thumb { background: #444746; border-radius: 4px; }
+.tk-scope ::-webkit-scrollbar-thumb:hover { background: #8e918f; }
+`;
+
+type TreeNode = {
+  name: string;
+  path: string;
+  isDir: boolean;
+  children: TreeNode[];
+};
+
+function buildFileTree(files: CodebaseFile[]): TreeNode[] {
+  const root: TreeNode = { name: "", path: "", isDir: true, children: [] };
+
+  for (const file of files) {
+    const segments = file.path.split("/").filter(Boolean);
+    let node = root;
+
+    segments.forEach((segment, index) => {
+      const isLeaf = index === segments.length - 1;
+      const segmentPath = segments.slice(0, index + 1).join("/");
+      let child = node.children.find(
+        (candidate) => candidate.name === segment && candidate.isDir === !isLeaf,
+      );
+
+      if (!child) {
+        child = { name: segment, path: segmentPath, isDir: !isLeaf, children: [] };
+        node.children.push(child);
+      }
+
+      node = child;
+    });
+  }
+
+  const sortNodes = (node: TreeNode) => {
+    node.children.sort((a, b) => {
+      if (a.isDir !== b.isDir) {
+        return a.isDir ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    });
+    node.children.forEach(sortNodes);
+  };
+
+  sortNodes(root);
+  return root.children;
+}
+
+function fileGlyph(name: string) {
+  if (name.endsWith(".json")) return "{}";
+  if (name.endsWith(".py")) return "py";
+  if (name.endsWith(".md")) return "md";
+  if (name.endsWith(".txt")) return "··";
+  return "<>";
+}
+
+function initialSeconds(session: CandidateAssessmentSession) {
+  if (session.expiresAt) {
+    const ms = new Date(session.expiresAt).getTime() - Date.now();
+    if (!Number.isNaN(ms)) {
+      return Math.max(0, Math.floor(ms / 1000));
+    }
+  }
+
+  return Math.max(0, session.timeLimitMinutes * 60);
+}
+
+function formatClock(total: number) {
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function AssessmentStep({ session }: { session: CandidateAssessmentSession }) {
+  const files = session.codeFiles;
+  const tree = buildFileTree(files);
+
+  const [activePath, setActivePath] = useState(files[0]?.path ?? "");
+  const [openDirs, setOpenDirs] = useState<Set<string>>(() => {
+    const open = new Set<string>();
+    const walk = (nodes: TreeNode[]) => {
+      for (const node of nodes) {
+        if (node.isDir) {
+          open.add(node.path);
+          walk(node.children);
+        }
+      }
+    };
+    walk(tree);
+    return open;
+  });
+  const [scratchOpen, setScratchOpen] = useState(false);
+  const [scratch, setScratch] = useState("");
+  const [secondsLeft, setSecondsLeft] = useState(() => initialSeconds(session));
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setSecondsLeft((value) => (value <= 0 ? 0 : value - 1));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const activeFile =
+    files.find((file) => file.path === activePath) ?? files[0] ?? null;
+  const activeName = activeFile ? activeFile.path.split("/").pop() : "";
+
+  function toggleDir(path: string) {
+    setOpenDirs((previous) => {
+      const next = new Set(previous);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  }
+
+  function endSession() {
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm("End the assessment session?");
+      if (!confirmed) {
+        return;
+      }
+      if (document.fullscreenElement) {
+        document.exitFullscreen().catch(() => {});
+      }
+      window.location.reload();
+    }
+  }
+
+  const renderNodes = (nodes: TreeNode[], depth: number): ReactNode =>
+    nodes.map((node) => {
+      const indent = { paddingLeft: depth * 14 + 8 };
+
+      if (node.isDir) {
+        const open = openDirs.has(node.path);
+        return (
+          <div key={node.path}>
+            <button
+              type="button"
+              onClick={() => toggleDir(node.path)}
+              style={indent}
+              className="group flex w-full items-center space-x-2 rounded px-2 py-1.5 text-left text-[#c4c7c5] transition-colors hover:bg-[#292a2a]"
+            >
+              <ChevronDown
+                className={cx(
+                  "h-4 w-4 shrink-0 text-[#8e918f] transition-transform group-hover:text-[#c4c7c5]",
+                  !open && "-rotate-90",
+                )}
+              />
+              <Folder className="h-4 w-4 shrink-0 text-[#8e918f]" />
+              <span className="truncate">{node.name}</span>
+            </button>
+            {open ? renderNodes(node.children, depth + 1) : null}
+          </div>
+        );
+      }
+
+      const active = node.path === activePath;
+      return (
+        <button
+          type="button"
+          key={node.path}
+          onClick={() => setActivePath(node.path)}
+          style={indent}
+          className={cx(
+            "relative flex w-full items-center space-x-2 rounded px-2 py-1.5 text-left transition-colors",
+            active
+              ? "bg-[#4ade80]/10 text-[#4ade80] before:absolute before:left-0 before:top-0 before:h-full before:w-[2px] before:bg-[#4ade80] before:content-['']"
+              : "text-[#c4c7c5] hover:bg-[#292a2a] hover:text-[#e2e2e2]",
+          )}
+        >
+          <span className="tk-mono w-4 shrink-0 text-center text-xs font-bold">
+            {fileGlyph(node.name)}
+          </span>
+          <span className="truncate">{node.name}</span>
+        </button>
+      );
+    });
+
+  return (
+    <div className="tk-scope fixed inset-0 flex flex-col overflow-hidden bg-[#0d0e0f] text-[#e2e2e2] selection:bg-[#005321] selection:text-[#6efb9b]">
+      <style>{workspaceCss}</style>
+
+      {/* Floating Recruiter Bar */}
+      <div className="absolute top-4 left-1/2 z-50 flex -translate-x-1/2 items-center space-x-3 rounded-full border border-[#444746] bg-[#343535] px-4 py-2 shadow-lg">
+        <div className="flex items-center space-x-2">
+          <div className="h-2 w-2 animate-pulse rounded-full bg-[#4ade80]" />
+          <span className="text-xs font-medium uppercase tracking-wide text-[#e2e2e2]">
+            Recruiter
+          </span>
+        </div>
+        <div className="flex h-4 items-center space-x-1">
+          <div className="tk-wf w-1 rounded-full bg-[#4ade80]" style={{ height: "8px" }} />
+          <div className="tk-wf w-1 rounded-full bg-[#4ade80]" style={{ height: "12px" }} />
+          <div className="tk-wf w-1 rounded-full bg-[#4ade80]" style={{ height: "16px" }} />
+          <div className="tk-wf w-1 rounded-full bg-[#4ade80]" style={{ height: "10px" }} />
+          <div className="tk-wf w-1 rounded-full bg-[#4ade80]" style={{ height: "6px" }} />
+        </div>
+      </div>
+
+      {/* Main Header */}
+      <header className="flex shrink-0 items-center justify-between border-b border-[#444746] bg-[#121414] px-6 py-3">
+        <div className="flex min-w-0 items-center space-x-4">
+          <div className="text-xl font-bold tracking-tight text-[#e2e2e2]">TALKODE</div>
+          <div className="h-4 w-px bg-[#444746]" />
+          <div className="truncate text-xs font-medium uppercase tracking-widest text-[#c4c7c5]">
+            {session.title}
+          </div>
+        </div>
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2 rounded-md border border-[#444746] bg-[#1b1c1c] px-3 py-1.5">
+            <Clock className="h-4 w-4 text-[#c4c7c5]" />
+            <span className="tk-mono text-sm font-semibold text-[#e2e2e2]">
+              {formatClock(secondsLeft)}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={endSession}
+            className="flex items-center space-x-2 rounded-md px-3 py-1.5 text-sm font-semibold text-[#ffb4ab] transition-colors hover:bg-[#93000a]/10 hover:text-[#ffdad6]"
+          >
+            <LogOut className="h-4 w-4" />
+            <span>END SESSION</span>
+          </button>
+        </div>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="flex flex-1 overflow-hidden">
+        {/* File Explorer Sidebar */}
+        <aside className="flex w-64 shrink-0 flex-col border-r border-[#444746] bg-[#1f2020]">
+          <div className="flex items-center justify-between border-b border-[#444746] p-4 text-xs font-semibold uppercase tracking-wider text-[#c4c7c5]">
+            <span>Codebase</span>
+            <Folder className="h-4 w-4" />
+          </div>
+          <div className="tk-mono flex-1 overflow-y-auto p-2 text-sm">
+            {files.length > 0 ? (
+              renderNodes(tree, 0)
+            ) : (
+              <p className="px-2 py-2 text-[#8e918f]">No files loaded.</p>
+            )}
+          </div>
+        </aside>
+
+        {/* Code Editor */}
+        <section className="flex min-w-0 flex-1 flex-col bg-[#0d0e0f]">
+          {/* Editor Header */}
+          <div className="flex h-12 shrink-0 items-center justify-between border-b border-[#444746] bg-[#1b1c1c] px-4">
+            <div className="flex h-full items-center">
+              <div className="tk-mono flex h-full items-center border-b-2 border-[#4ade80] bg-[#0d0e0f] px-4 text-sm text-[#4ade80]">
+                {activeName || "No file"}
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={() => setScratchOpen((value) => !value)}
+              className={cx(
+                "flex items-center space-x-2 rounded border px-3 py-1.5 text-xs font-semibold transition-colors",
+                scratchOpen
+                  ? "border-[#4ade80] bg-[#4ade80]/10 text-[#4ade80]"
+                  : "border-[#4ade80]/30 text-[#4ade80] hover:bg-[#4ade80]/10",
+              )}
+            >
+              <Code2 className="h-3 w-3" />
+              <span>TOGGLE SCRATCHPAD</span>
+            </button>
+          </div>
+          {/* Editor Content */}
+          <div className="tk-mono flex-1 overflow-auto bg-[#0d0e0f] text-sm leading-relaxed">
+            {activeFile ? (
+              <div className="flex min-h-full min-w-full w-max">
+                <div className="select-none border-r border-[#1f2020] px-3 py-4 text-right text-[#4a4f48]">
+                  {activeFile.content.split("\n").map((_, index) => (
+                    <div key={index}>{index + 1}</div>
+                  ))}
+                </div>
+                <pre className="m-0 flex-1 py-4 pl-4 pr-6 text-[#c4c7c5]">
+                  {activeFile.content}
+                </pre>
+              </div>
+            ) : (
+              <div className="p-6 text-[#8e918f]">No file selected.</div>
+            )}
           </div>
         </section>
-      </div>
-    </main>
+
+        {/* Scratchpad */}
+        {scratchOpen ? (
+          <aside className="flex w-80 shrink-0 flex-col border-l border-[#444746] bg-[#121414]">
+            <div className="flex items-center justify-between border-b border-[#444746] px-4 py-3 text-xs font-semibold uppercase tracking-wider text-[#c4c7c5]">
+              <span>Scratchpad</span>
+              <button
+                type="button"
+                onClick={() => setScratchOpen(false)}
+                className="text-[#8e918f] transition-colors hover:text-[#e2e2e2]"
+                aria-label="Close scratchpad"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <textarea
+              value={scratch}
+              onChange={(event) => setScratch(event.target.value)}
+              placeholder="Jot down notes, plan your approach, sketch pseudocode…"
+              className="tk-mono flex-1 resize-none bg-transparent p-4 text-sm leading-relaxed text-[#e2e2e2] outline-none placeholder:text-[#5a5f57]"
+            />
+          </aside>
+        ) : null}
+      </main>
+    </div>
   );
 }
 
