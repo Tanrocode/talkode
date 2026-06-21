@@ -8,9 +8,9 @@ from openai import AsyncOpenAI
 client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
 # Rule-gate phrase lists
-STUCK_PHRASES = ["i'm stuck", "im stuck", "i don't know", "i dont know", "not sure how", "don't know how", "no idea how"]
+STUCK_PHRASES = ["i'm stuck", "im stuck", "i don't know", "i dont know", "not sure how", "don't know how", "no idea how", "i don't understand", "i dont understand", "i'm confused", "i'm lost", "i don't get it", "not sure what"]
 HINT_PHRASES = ["can i get a hint", "give me a hint", "is this the right direction", "what should i look at", "am i on the right track"]
-QUESTION_SIGNALS = ["should i", "what if", "does this need", "do i need", "how do i", "what do i", "?"]
+QUESTION_SIGNALS = ["should i", "what if", "does this need", "do i need", "how do i", "what do i", "how should i", "how would i", "how can i", "what's the best", "what is the best", "?"]
 DECISION_PHRASES = ["i'll go with", "i'll use", "i'm going to use", "i'm choosing", "i'll choose"]
 
 
@@ -55,6 +55,7 @@ async def maybe_respond(session_id: str, r: redis.Redis) -> str | None:
         return None
 
     trigger = rule_gate(window)
+    print(f"[rule-gate] window: {window!r} → trigger: {trigger}")
     if not trigger:
         return None
 
@@ -69,18 +70,23 @@ async def maybe_respond(session_id: str, r: redis.Redis) -> str | None:
 
     memory_notes = await get_rolling_memory(session_id, r)
 
-    prompt = f"""You are observing a technical coding interview. Here is the problem:
+    prompt = f"""You are a senior engineer sitting with a candidate during a technical interview. Here is the problem they are solving:
 {meta["problem_statement"]}
 
-Current code:
+Their current code:
 {code_snapshot}
 
-The candidate just paused after saying: "{window}"
+What the candidate just said (ignore any transcription noise):
+"{window}"
 
 Already covered this session: {memory_notes}
 
-If the candidate asked a direct question or stated they are stuck, respond as a senior engineer would — briefly, like a real mentor, not a lecture. If this is just a normal thinking pause with no question or stuck statement, respond with exactly: NONE"""
+Your job: if the candidate asked ANY question or expressed confusion or being stuck, respond helpfully and briefly — 1-3 sentences max, like a real mentor nudging them in the right direction, not giving the answer away. Be direct and practical.
 
+Only respond with exactly the word NONE (nothing else) if the candidate is clearly just thinking out loud with no question or confusion expressed at all."""
+
+    print(f"[openai] calling with problem={meta['problem_title']!r} trigger window={window[-100:]!r}")
+    print(f"[openai] code_snapshot={code_snapshot[:200]!r}")
     response = await client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": prompt}],
@@ -89,6 +95,7 @@ If the candidate asked a direct question or stated they are stuck, respond as a 
     )
 
     text = response.choices[0].message.content.strip()
+    print(f"[openai] raw response: {text!r}")
     if text == "NONE":
         return None
 
