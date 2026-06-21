@@ -4,10 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, RefreshCw } from "lucide-react";
 import {
   getEvents,
+  getInsights,
   getTimeline,
   listSessions,
   VOICE_API_BASE,
   type BackendSession,
+  type SessionInsights,
   type TimelineEvent,
 } from "@/lib/voiceAgent";
 
@@ -46,6 +48,7 @@ export default function InterviewSessionsPage() {
   const [selected, setSelected] = useState<BackendSession | null>(null);
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [timeline, setTimeline] = useState<unknown>(null);
+  const [insights, setInsights] = useState<SessionInsights | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
@@ -75,9 +78,11 @@ export default function InterviewSessionsPage() {
     setDetailError(null);
     setEvents([]);
     setTimeline(null);
-    const [eventsResult, timelineResult] = await Promise.allSettled([
+    setInsights(null);
+    const [eventsResult, timelineResult, insightsResult] = await Promise.allSettled([
       getEvents(session.session_id),
       getTimeline(session.session_id),
+      getInsights(session.session_id),
     ]);
     if (eventsResult.status === "fulfilled") {
       setEvents(eventsResult.value.events);
@@ -88,6 +93,9 @@ export default function InterviewSessionsPage() {
       setDetailError(
         "Timeline not ready yet — the session may still be processing.",
       );
+    }
+    if (insightsResult.status === "fulfilled") {
+      setInsights(insightsResult.value.insights);
     }
     setDetailLoading(false);
   }, []);
@@ -119,6 +127,83 @@ export default function InterviewSessionsPage() {
 
         {detailLoading ? (
           <p className="mt-6 text-sm text-[#62675e]">Loading analysis…</p>
+        ) : null}
+
+        {insights ? (
+          <>
+            {/* Summary + recommendation */}
+            <section className="mt-6 rounded-[8px] border border-[#f0eeea] bg-white px-5 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-base font-bold text-[#202322]">AI Assessment</h2>
+                <span className={`rounded-full px-3 py-1 text-xs font-bold ${insights.advance_recommend ? "bg-[#d7ff5a] text-[#202322]" : "bg-[#ffe7df] text-[#80321d]"}`}>
+                  {insights.advance_recommend ? "Advance" : "Do not advance"}
+                </span>
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-[#3d4239]">{insights.summary}</p>
+              <p className="mt-1 text-xs text-[#62675e] italic">{insights.advance_reason}</p>
+
+              <div className="mt-4 flex gap-6 text-sm text-[#55594f]">
+                <span>Stuck <strong className="text-[#202322]">{insights.stuck_count}×</strong></span>
+                <span>Hints <strong className="text-[#202322]">{insights.hint_count}×</strong></span>
+                <span>Rubric stage <strong className="text-[#202322]">{insights.final_stage}</strong></span>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[#62675e]">Strengths</p>
+                  <ul className="space-y-1">
+                    {insights.strengths.map((s, i) => (
+                      <li key={i} className="rounded-full bg-[#edffd0] px-3 py-0.5 text-xs font-medium text-[#2d4a0a] inline-block mr-1 mb-1">{s}</li>
+                    ))}
+                  </ul>
+                </div>
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[#62675e]">Gaps</p>
+                  <ul className="space-y-1">
+                    {insights.gaps.map((g, i) => (
+                      <li key={i} className="rounded-full bg-[#ffe7df] px-3 py-0.5 text-xs font-medium text-[#80321d] inline-block mr-1 mb-1">{g}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </section>
+
+            {/* Intent map */}
+            {insights.intent_map.length > 0 ? (
+              <section className="mt-4">
+                <h2 className="text-base font-bold text-[#202322]">Interview map</h2>
+                <div className="mt-3 relative">
+                  {/* Timeline line */}
+                  <div className="absolute left-[7px] top-0 bottom-0 w-[2px] bg-[#f0eeea]" />
+                  <ul className="space-y-3 pl-6">
+                    {insights.intent_map.map((moment, i) => {
+                      const dotColor: Record<string, string> = {
+                        stuck: "bg-[#ff6b4a]",
+                        decision: "bg-[#d7ff5a]",
+                        question: "bg-[#a8c5ff]",
+                        answer: "bg-[#b8f0c8]",
+                        explaining: "bg-[#e0d7ff]",
+                        coding: "bg-[#ffd7a8]",
+                        correction: "bg-[#ffa8d7]",
+                      };
+                      const color = dotColor[moment.category] ?? "bg-[#e0dedb]";
+                      return (
+                        <li key={i} className="relative flex gap-3 items-start">
+                          <span className={`absolute -left-6 mt-1 h-3.5 w-3.5 rounded-full border-2 border-white ${color}`} />
+                          <div>
+                            <span className="text-xs font-semibold text-[#202322]">{moment.label}</span>
+                            {moment.quote ? (
+                              <p className="mt-0.5 text-xs text-[#62675e] leading-relaxed">"{moment.quote}"</p>
+                            ) : null}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              </section>
+            ) : null}
+          </>
         ) : null}
 
         <section className="mt-6">

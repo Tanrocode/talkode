@@ -43,3 +43,17 @@ async def get_timeline(session_id: str):
         raise HTTPException(status_code=404, detail="Timeline not ready — session may still be processing")
 
     return {"session_id": session_id, "timeline": json.loads(raw)}
+
+
+@router.get("/session/{session_id}/insights")
+async def get_insights(session_id: str):
+    r = get_redis()
+
+    if not await r.exists(f"session:{session_id}:meta"):
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    raw = await r.get(f"session:{session_id}:insights")
+    if not raw:
+        raise HTTPException(status_code=404, detail="Insights not ready yet")
+
+    return {"session_id": session_id, "insights": json.loads(raw)}

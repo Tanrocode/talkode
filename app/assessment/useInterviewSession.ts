@@ -76,6 +76,7 @@ export function useInterviewSession() {
   const [error, setError] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [speaking, setSpeaking] = useState(false);
+  const [interviewComplete, setInterviewComplete] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -232,6 +233,8 @@ export function useInterviewSession() {
           ) {
             // fallback if TTS failed
             pushMessage("agent", payload.text);
+          } else if (payload.type === "interview_complete") {
+            setInterviewComplete(true);
           } else if (payload.type === "error") {
             setError(payload.text);
           }
@@ -306,5 +309,5 @@ export function useInterviewSession() {
     };
   }, [teardownAudio]);
 
-  return { status, messages, interim, error, sessionId, speaking, start, end };
+  return { status, messages, interim, error, sessionId, speaking, interviewComplete, start, end };
 }

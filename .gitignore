@@ -45,3 +45,4 @@ __pycache__/
 backend/services/__pycache__/
 *.pyc
 backend/.venv/
+backend/agent_debug.log

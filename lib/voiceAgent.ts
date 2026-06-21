@@ -50,6 +50,7 @@ export type InterviewServerMessage =
   | { type: "agent_audio"; audio_b64: string }
   | { type: "transcript_chunk"; text: string; is_final?: boolean }
   | { type: "session_started"; text: string }
+  | { type: "interview_complete" }
   | { type: "error"; text: string };
 
 async function asJson<T>(res: Response, label: string): Promise<T> {
@@ -128,4 +129,35 @@ export async function getTimeline(
     { cache: "no-store" },
   );
   return asJson(res, "getTimeline");
+}
+
+export type IntentMoment = {
+  ts_ms: number;
+  actor: "candidate" | "agent";
+  category: "explaining" | "stuck" | "decision" | "question" | "answer" | "coding" | "correction";
+  label: string;
+  quote: string;
+};
+
+export type SessionInsights = {
+  summary: string;
+  strengths: string[];
+  gaps: string[];
+  advance_recommend: boolean;
+  advance_reason: string;
+  stuck_count: number;
+  hint_count: number;
+  final_stage: number;
+  intent_map: IntentMoment[];
+  generated_at: number;
+};
+
+export async function getInsights(
+  sessionId: string,
+): Promise<{ session_id: string; insights: SessionInsights }> {
+  const res = await fetch(
+    `${VOICE_API_BASE}/dashboard/session/${sessionId}/insights`,
+    { cache: "no-store" },
+  );
+  return asJson(res, "getInsights");
 }

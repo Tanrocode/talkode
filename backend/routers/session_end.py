@@ -71,9 +71,13 @@ async def run_batch_pipeline(session_id: str, audio_bytes: bytes, mimetype: str)
                     "type": "speech",
                 })
 
-        # Step 2 — merge + detect (Steps 8 + 9)
+        # Step 2 — merge + detect
         from services.pipeline import run_pipeline
         await run_pipeline(session_id, utterances, r)
+
+        # Step 3 — generate HR insights + intent map
+        from services.insight_extractor import extract_insights
+        await extract_insights(session_id, r)
 
     except Exception as e:
         # Mark session as failed so the HR dashboard can surface it
