@@ -15,7 +15,7 @@ class CreateSessionRequest(BaseModel):
     problem_id: str
     problem_title: str
     problem_statement: str
-    question_guidelines: str = ""  # rubric content from assessment_rubric_templates
+    question_guidelines: str = ""  # saved assessment rubric
 
 
 @router.post("")

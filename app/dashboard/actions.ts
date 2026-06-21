@@ -5,15 +5,18 @@ import { redirect } from "next/navigation";
 import {
   assessmentTechnologyLabels,
   type AssessmentTechnology,
-  type RubricSource,
 } from "@/app/dashboard/data";
+import {
+  buildRubricTable,
+  findRubricCriteria,
+} from "@/lib/assessment-rubric";
 import { createClient } from "@/lib/supabase/server";
 
 type AssessmentField =
+  | "customRubricCriteria"
   | "expirationDate"
   | "jobDescription"
-  | "rubricFile"
-  | "rubricSource"
+  | "rubricCriteria"
   | "technologies"
   | "timeLimitMinutes"
   | "title";
@@ -28,11 +31,17 @@ const assessmentTechnologies: AssessmentTechnology[] = [
   "react_javascript",
   "python",
 ];
-const rubricSources: RubricSource[] = ["generated", "uploaded"];
 
 function readFormString(formData: FormData, key: AssessmentField) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+function readCustomRubricCriteria(formData: FormData) {
+  return readFormString(formData, "customRubricCriteria")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 function parseExpirationDate(value: string) {
@@ -53,26 +62,6 @@ function isAssessmentTechnology(value: string): value is AssessmentTechnology {
   return assessmentTechnologies.includes(value as AssessmentTechnology);
 }
 
-function isRubricSource(value: string): value is RubricSource {
-  return rubricSources.includes(value as RubricSource);
-}
-
-async function readUploadedRubric(formData: FormData) {
-  const rubricFile = formData.get("rubricFile");
-
-  if (!(rubricFile instanceof File) || rubricFile.size === 0) {
-    return {
-      error: "Upload a rubric file.",
-      text: "",
-    };
-  }
-
-  return {
-    error: undefined,
-    text: await rubricFile.text(),
-  };
-}
-
 export async function signOut() {
   const supabase = await createClient();
   await supabase.auth.signOut();
@@ -89,15 +78,24 @@ export async function createAssessment(
   const expirationDateValue = readFormString(formData, "expirationDate");
   const jobDescription = readFormString(formData, "jobDescription");
   const timeLimitValue = readFormString(formData, "timeLimitMinutes");
-  const rubricSourceValue = readFormString(formData, "rubricSource");
   const timeLimitMinutes = Number(timeLimitValue);
   const expirationDate = parseExpirationDate(expirationDateValue);
+  const customRubricCriteria = readCustomRubricCriteria(formData);
   const selectedTechnologies = Array.from(
     new Set(
       formData
         .getAll("technologies")
         .filter((technology): technology is string => typeof technology === "string")
         .filter(isAssessmentTechnology),
+    ),
+  );
+  const selectedRubricCriteria = findRubricCriteria(
+    Array.from(
+      new Set(
+        formData
+          .getAll("rubricCriteria")
+          .filter((criterion): criterion is string => typeof criterion === "string"),
+      ),
     ),
   );
   const fieldErrors: CreateAssessmentFormState["fieldErrors"] = {};
@@ -126,8 +124,19 @@ export async function createAssessment(
     fieldErrors.jobDescription = "Enter a job description.";
   }
 
-  if (!isRubricSource(rubricSourceValue)) {
-    fieldErrors.rubricSource = "Choose a rubric option.";
+  if (selectedRubricCriteria.length === 0 && customRubricCriteria.length === 0) {
+    fieldErrors.rubricCriteria =
+      "Choose at least one rubric criterion or add a custom one.";
+  }
+
+  if (customRubricCriteria.some((criterion) => criterion.length < 12)) {
+    fieldErrors.customRubricCriteria =
+      "Make each custom criterion specific enough to grade.";
+  }
+
+  if (customRubricCriteria.some((criterion) => criterion.length > 240)) {
+    fieldErrors.customRubricCriteria =
+      "Keep each custom criterion under 240 characters.";
   }
 
   if (Object.keys(fieldErrors).length > 0) {
@@ -138,11 +147,7 @@ export async function createAssessment(
     };
   }
 
-  if (
-    selectedTechnologies.length === 0 ||
-    !expirationDate ||
-    !isRubricSource(rubricSourceValue)
-  ) {
+  if (selectedTechnologies.length === 0 || !expirationDate) {
     return {
       message: "Check the highlighted fields.",
       status: "error",
@@ -186,38 +191,10 @@ export async function createAssessment(
     };
   }
 
-  let rubricText = "";
-
-  if (rubricSourceValue === "uploaded") {
-    const uploadedRubric = await readUploadedRubric(formData);
-
-    if (uploadedRubric.error) {
-      return {
-        fieldErrors: {
-          rubricFile: uploadedRubric.error,
-        },
-        message: "Check the highlighted fields.",
-        status: "error",
-      };
-    }
-
-    rubricText = uploadedRubric.text;
-  } else {
-    const { data: rubricTemplate, error: rubricError } = await supabase
-      .from("assessment_rubric_templates")
-      .select("content")
-      .eq("codebase_template_id", codebaseTemplate.id)
-      .maybeSingle();
-
-    if (rubricError || !rubricTemplate) {
-      return {
-        message: "No Supabase rubric template is available for this codebase.",
-        status: "error",
-      };
-    }
-
-    rubricText = rubricTemplate.content;
-  }
+  const rubricText = buildRubricTable({
+    customCriteria: customRubricCriteria,
+    selectedCriteria: selectedRubricCriteria,
+  });
 
   const technologyLabel = selectedTechnologies
     .map((technology) => assessmentTechnologyLabels[technology])
@@ -232,7 +209,7 @@ export async function createAssessment(
       job_description: jobDescription,
       organization_id: profile.organization_id,
       role_name: technologyLabel,
-      rubric_source: rubricSourceValue,
+      rubric_source: "generated",
       rubric_text: rubricText,
       status: "draft",
       technologies: selectedTechnologies,

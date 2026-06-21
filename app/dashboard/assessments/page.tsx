@@ -36,9 +36,6 @@ export default async function AssessmentsPage() {
           <h1 className="text-[28px] font-black leading-tight text-[#202322]">
             Assessments
           </h1>
-          <p className="mt-2 text-sm text-[#55594f]">
-            Supabase-backed assessment records.
-          </p>
         </div>
         <Link
           className="inline-flex h-9 items-center justify-center gap-2 rounded-[3px] bg-primary px-3 text-[13px] font-bold text-[#111510] transition duration-150 hover:bg-[#d7ff5a] sm:w-fit"

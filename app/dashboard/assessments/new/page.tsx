@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import Link from "next/link";
+import { ArrowLeft } from "lucide-react";
 import { getCreateAssessmentData } from "@/app/dashboard/data";
 import { CreateAssessmentForm } from "@/app/dashboard/assessments/new/CreateAssessmentForm";
 
@@ -11,13 +13,21 @@ export default async function NewAssessmentPage() {
 
   return (
     <>
-      <section>
-        <h1 className="text-[28px] font-black leading-tight text-[#202322]">
-          Create assessment
-        </h1>
-        <p className="mt-2 text-sm text-[#55594f]">
-          React code-review assessment backed by Supabase code files.
-        </p>
+      <section className="max-w-[1120px]">
+        <Link
+          className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#55594f] transition duration-150 hover:text-[#202322]"
+          href="/dashboard/assessments"
+        >
+          <ArrowLeft size={14} />
+          Assessments
+        </Link>
+        <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-[28px] font-black leading-tight text-[#202322]">
+              Create assessment
+            </h1>
+          </div>
+        </div>
       </section>
 
       {error ? (

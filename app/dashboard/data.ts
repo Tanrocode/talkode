@@ -7,8 +7,6 @@ type CodebaseTemplateRow =
   Database["public"]["Tables"]["assessment_codebase_templates"]["Row"];
 type CodebaseFileRow =
   Database["public"]["Tables"]["assessment_codebase_files"]["Row"];
-type RubricTemplateRow =
-  Database["public"]["Tables"]["assessment_rubric_templates"]["Row"];
 type CandidateRow = Database["public"]["Tables"]["candidates"]["Row"];
 type RecruiterProfileRow =
   Database["public"]["Tables"]["recruiter_profiles"]["Row"];
@@ -74,8 +72,6 @@ export type CodebaseTemplateOption = {
   description: string;
   files: CodebaseFilePreview[];
   id: string;
-  rubricIsMock: boolean;
-  rubricTitle: string | null;
   slug: string;
   technologies: AssessmentTechnology[];
   technologyLabel: string;
@@ -223,24 +219,14 @@ function formatCodebaseFile(file: CodebaseFileRow): CodebaseFile {
   };
 }
 
-function mapRubricsByTemplate(rows: RubricTemplateRow[]) {
-  return rows.reduce<Record<string, RubricTemplateRow>>((rubrics, rubric) => {
-    rubrics[rubric.codebase_template_id] = rubric;
-    return rubrics;
-  }, {});
-}
-
 function formatCodebaseTemplate(
   row: CodebaseTemplateRow,
   files: CodebaseFilePreview[],
-  rubric?: RubricTemplateRow,
 ): CodebaseTemplateOption {
   return {
     description: row.description,
     files,
     id: row.id,
-    rubricIsMock: rubric?.is_mock ?? false,
-    rubricTitle: rubric?.title ?? null,
     slug: row.slug,
     technologies: row.technologies,
     technologyLabel: row.technologies
@@ -373,7 +359,7 @@ export async function getCreateAssessmentData(): Promise<CreateAssessmentData> {
 
   const { supabase } = profileResult.data;
 
-  const [templatesResult, filesResult, rubricsResult] = await Promise.all([
+  const [templatesResult, filesResult] = await Promise.all([
     supabase
       .from("assessment_codebase_templates")
       .select(
@@ -387,9 +373,6 @@ export async function getCreateAssessmentData(): Promise<CreateAssessmentData> {
         "id, codebase_template_id, path, language, content, sort_order, created_at, updated_at",
       )
       .order("sort_order", { ascending: true }),
-    supabase
-      .from("assessment_rubric_templates")
-      .select("id, codebase_template_id, title, content, is_mock, created_at, updated_at"),
   ]);
 
   if (templatesResult.error) {
@@ -406,22 +389,13 @@ export async function getCreateAssessmentData(): Promise<CreateAssessmentData> {
     };
   }
 
-  if (rubricsResult.error) {
-    return {
-      error: rubricsResult.error.message,
-      templates: [],
-    };
-  }
-
   const filesByTemplate = groupFilesByTemplate(filesResult.data ?? []);
-  const rubricsByTemplate = mapRubricsByTemplate(rubricsResult.data ?? []);
 
   return {
     templates: (templatesResult.data ?? []).map((template) =>
       formatCodebaseTemplate(
         template,
         filesByTemplate[template.id] ?? [],
-        rubricsByTemplate[template.id],
       ),
     ),
   };

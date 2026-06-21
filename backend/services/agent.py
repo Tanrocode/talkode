@@ -28,6 +28,13 @@ DECISION_PHRASES = [
     "i'll go with", "i'll use", "i'm going to use", "i'm choosing", "i'll choose",
 ]
 
+RUBRIC_ENFORCEMENT = """Rubric enforcement:
+- Treat each rubric table row as an independent requirement scored from 1 to 4.
+- A score of 3 or 4 requires codebase-specific evidence: files, functions, data fields, state transitions, failure modes, tests, or tradeoffs.
+- Do not accept broad definitions, memorized concepts, or confident generic answers as sufficient.
+- If the candidate gives a generic answer, ask one targeted follow-up that forces them to anchor the answer in the visible codebase.
+- Move on only after collecting code-specific evidence or clearly noting that the evidence is missing."""
+
 
 def rule_gate(text: str) -> str | None:
     lower = text.lower()
@@ -125,6 +132,8 @@ async def _guide_response(meta: dict, code: str, window: str, memory: str, stage
 Here is the interview rubric you are following:
 {guidelines if guidelines else "(no rubric provided)"}
 
+{RUBRIC_ENFORCEMENT}
+
 The candidate's current code:
 {code}
 
@@ -134,7 +143,7 @@ What the candidate just said:
 What has been discussed so far in this session: {memory}
 Current interview stage: {stage}
 
-The candidate is stuck or confused. Give them ONE brief nudge — 1-2 sentences max. Speak like a colleague sitting next to them. Don't lecture. Don't give the answer away. Use plain, direct language. No "Great question!" or filler phrases.
+The candidate is stuck or confused. Give them ONE brief nudge - 1-2 sentences max. Speak like a colleague sitting next to them. Don't lecture. Don't give the answer away. Use plain, direct language. No "Great question!" or filler phrases.
 
 If you genuinely cannot help without giving away the answer, respond with exactly: NONE"""
 
@@ -147,6 +156,8 @@ async def _interviewer_response(meta: dict, code: str, window: str, memory: str,
 Here is the interview rubric you are following:
 {guidelines if guidelines else "(no rubric provided)"}
 
+{RUBRIC_ENFORCEMENT}
+
 The candidate's current code:
 {code}
 
@@ -157,8 +168,9 @@ What has been discussed so far: {memory}
 Current interview stage: {stage}
 
 The candidate asked a question or made a statement about their approach. Do ONE of the following:
-1. If their question shows they're ready to move to the next area of the rubric, ask the next natural interview question from the rubric — conversationally, like a curious engineer, not a scripted interviewer.
-2. If they need a nudge on the current area, give a brief practical hint (1-2 sentences).
+1. If their answer is generic, ask a targeted follow-up that forces a concrete file, function, data field, state transition, failure mode, test, or tradeoff from this codebase.
+2. If their question shows they are ready to move to the next area of the rubric, ask the next natural interview question from the rubric - conversationally, like a curious engineer, not a scripted interviewer.
+3. If they need a nudge on the current area, give a brief practical hint (1-2 sentences).
 
 Speak naturally. No filler phrases. No "That's a great point." If the candidate's statement requires no response (just thinking out loud), respond with exactly: NONE"""
 

@@ -359,6 +359,7 @@ export type Database = {
           expires_at: string | null;
           technologies: Database["public"]["Enums"]["assessment_technology"][];
           code_files: Json;
+          rubric_text: string;
         }>;
       };
     };
