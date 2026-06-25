@@ -11,6 +11,15 @@ import "prismjs/components/prism-typescript";
 import "prismjs/components/prism-tsx";
 import "prismjs/components/prism-python";
 import "prismjs/components/prism-json";
+import "prismjs/components/prism-c";
+import "prismjs/components/prism-cpp";
+import "prismjs/components/prism-csharp";
+import "prismjs/components/prism-go";
+import "prismjs/components/prism-rust";
+import "prismjs/components/prism-markup-templating"; // required by prism-php
+import "prismjs/components/prism-php";
+import "prismjs/components/prism-ruby";
+import "prismjs/components/prism-java";
 
 export type LineRange = { startLine: number; endLine: number };
 
@@ -20,19 +29,42 @@ export type CodeEditorProps = {
   filePath: string;
   highlightRange?: LineRange | null;
   onSelectionLinesChange?: (range: LineRange | null) => void;
+  // Overrides file-extension-based grammar detection (e.g. for the coding
+  // challenge editor, where the "file" is just a language picked from a list).
+  language?: string;
+  autoFocus?: boolean;
+};
+
+const LANGUAGE_GRAMMARS: Record<string, [Prism.Grammar, string]> = {
+  python: [Prism.languages.python, "python"],
+  json: [Prism.languages.json, "json"],
+  typescript: [Prism.languages.typescript, "typescript"],
+  tsx: [Prism.languages.tsx, "tsx"],
+  javascript: [Prism.languages.javascript, "javascript"],
+  jsx: [Prism.languages.jsx, "jsx"],
+  css: [Prism.languages.css, "css"],
+  markup: [Prism.languages.markup, "markup"],
+  c: [Prism.languages.c, "c"],
+  cpp: [Prism.languages.cpp, "cpp"],
+  csharp: [Prism.languages.csharp, "csharp"],
+  go: [Prism.languages.go, "go"],
+  rust: [Prism.languages.rust, "rust"],
+  php: [Prism.languages.php, "php"],
+  ruby: [Prism.languages.ruby, "ruby"],
+  java: [Prism.languages.java, "java"],
 };
 
 function grammarForPath(path: string): [Prism.Grammar, string] {
   const ext = path.split(".").pop()?.toLowerCase() ?? "";
   const map: Record<string, [Prism.Grammar, string]> = {
-    py: [Prism.languages.python, "python"],
-    json: [Prism.languages.json, "json"],
-    ts: [Prism.languages.typescript, "typescript"],
-    tsx: [Prism.languages.tsx, "tsx"],
-    js: [Prism.languages.javascript, "javascript"],
-    jsx: [Prism.languages.jsx, "jsx"],
-    css: [Prism.languages.css, "css"],
-    md: [Prism.languages.markup, "markup"],
+    py: LANGUAGE_GRAMMARS.python,
+    json: LANGUAGE_GRAMMARS.json,
+    ts: LANGUAGE_GRAMMARS.typescript,
+    tsx: LANGUAGE_GRAMMARS.tsx,
+    js: LANGUAGE_GRAMMARS.javascript,
+    jsx: LANGUAGE_GRAMMARS.jsx,
+    css: LANGUAGE_GRAMMARS.css,
+    md: LANGUAGE_GRAMMARS.markup,
   };
   return map[ext] ?? [Prism.languages.clike, "clike"];
 }
@@ -66,11 +98,20 @@ export function CodeEditor({
   filePath,
   highlightRange,
   onSelectionLinesChange,
+  language,
+  autoFocus,
 }: CodeEditorProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const preRef = useRef<HTMLPreElement | null>(null);
 
-  const [grammar, grammarName] = useMemo(() => grammarForPath(filePath), [filePath]);
+  const [grammar, grammarName] = useMemo(
+    () => (language ? LANGUAGE_GRAMMARS[language] ?? [Prism.languages.clike, "clike"] : grammarForPath(filePath)),
+    [language, filePath],
+  );
+
+  useEffect(() => {
+    if (autoFocus) textareaRef.current?.focus();
+  }, [autoFocus]);
 
   const highlightedHtml = useMemo(
     () => Prism.highlight(value, grammar, grammarName),

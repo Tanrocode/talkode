@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Bot,
   ChevronDown,
@@ -29,6 +29,16 @@ import type { CandidateAssessmentSession } from "@/app/assessment/actions";
 import type { CodebaseFile } from "@/app/dashboard/data";
 import { useInterviewSession } from "@/app/assessment/useInterviewSession";
 import { CodeEditor, type LineRange } from "@/app/assessment/CodeEditor";
+import {
+  startCodingChallenge,
+  submitCodingChallenge,
+  type CodingChallenge,
+} from "@/lib/voiceAgent";
+
+// TEST WIRING: the coding challenge auto-slides in this many ms after the
+// interview starts. Swap this for a real agent-driven trigger (e.g. a WS
+// message sent once the interviewer decides it's a good moment) later.
+const CHALLENGE_TRIGGER_DELAY_MS = 15000;
 
 const TK_MONO =
   'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
@@ -301,6 +311,140 @@ function SelfCameraPreview({
   );
 }
 
+function difficultyBadgeClass(difficulty: string): string {
+  if (difficulty === "Easy") return "bg-emerald-500/15 text-emerald-400";
+  if (difficulty === "Medium") return "bg-amber-500/15 text-amber-400";
+  if (difficulty === "Hard") return "bg-rose-500/15 text-rose-400";
+  return "bg-[var(--tk-bg-hover)] text-[var(--tk-text-dim)]";
+}
+
+const CHALLENGE_LANGUAGE_LABELS: Record<string, string> = {
+  python: "Python",
+  javascript: "JavaScript",
+  typescript: "TypeScript",
+  java: "Java",
+  cpp: "C++",
+  csharp: "C#",
+  go: "Go",
+  rust: "Rust",
+  php: "PHP",
+  ruby: "Ruby",
+};
+
+function CodingChallengePanel({
+  open,
+  problem,
+  code,
+  language,
+  onCodeChange,
+  onLanguageChange,
+  onSubmit,
+  submitting,
+}: {
+  open: boolean;
+  problem: CodingChallenge | null;
+  code: string;
+  language: string;
+  onCodeChange: (value: string) => void;
+  onLanguageChange: (language: string) => void;
+  onSubmit: () => void;
+  submitting: boolean;
+}) {
+  const availableLanguages = problem ? Object.keys(problem.starter_code) : [];
+
+  return (
+    <div
+      className={cx(
+        "absolute inset-0 z-30 flex flex-col bg-[var(--tk-bg)] transition-transform duration-300 ease-out",
+        open ? "translate-x-0" : "translate-x-full",
+      )}
+    >
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-[var(--tk-border)] bg-[var(--tk-bg-elevated)] px-3">
+        <div className="flex items-center gap-2">
+          <Code2 className="h-3.5 w-3.5 text-[var(--tk-accent)]" />
+          <span className="text-xs font-semibold uppercase tracking-widest text-[var(--tk-text-muted)]">
+            Coding challenge
+          </span>
+          {problem ? (
+            <span className={cx("tk-mono rounded px-2 py-0.5 text-[11px] font-semibold", difficultyBadgeClass(problem.difficulty))}>
+              {problem.difficulty}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-2">
+          {availableLanguages.length > 0 ? (
+            <select
+              value={language}
+              onChange={(event) => onLanguageChange(event.target.value)}
+              className="tk-mono rounded border border-[var(--tk-border)] bg-[var(--tk-bg)] px-2 py-1 text-xs text-[var(--tk-text)] outline-none"
+            >
+              {availableLanguages.map((lang) => (
+                <option key={lang} value={lang}>
+                  {CHALLENGE_LANGUAGE_LABELS[lang] ?? lang}
+                </option>
+              ))}
+            </select>
+          ) : null}
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={submitting || !problem}
+            className="rounded-md bg-[var(--tk-accent)] px-3 py-1 text-xs font-semibold text-[var(--tk-accent-text-on)] transition-colors hover:bg-[var(--tk-accent-hover)] disabled:opacity-50"
+          >
+            {submitting ? "Submitting…" : "Submit & return to codebase"}
+          </button>
+        </div>
+      </div>
+      <div className="flex flex-1 overflow-hidden">
+        <div className="w-[400px] shrink-0 overflow-y-auto border-r border-[var(--tk-border)] p-5 text-sm">
+          {problem ? (
+            <>
+              <h2 className="text-lg font-bold text-[var(--tk-text)]">{problem.title}</h2>
+              <p className="mt-2 text-[var(--tk-text-muted)]">{problem.intro}</p>
+              <p className="mt-4 whitespace-pre-wrap leading-relaxed text-[var(--tk-text-muted)]">
+                {problem.description}
+              </p>
+              {problem.examples.map((example) => (
+                <pre
+                  key={example.example_num}
+                  className="tk-mono mt-4 whitespace-pre-wrap rounded border border-[var(--tk-border)] bg-[var(--tk-bg-elevated)] p-3 text-xs text-[var(--tk-text-muted)]"
+                >
+                  {example.example_text}
+                </pre>
+              ))}
+              {problem.constraints.length > 0 ? (
+                <>
+                  <h3 className="mt-4 text-xs font-semibold uppercase tracking-wide text-[var(--tk-text-dim)]">
+                    Constraints
+                  </h3>
+                  <ul className="tk-mono mt-1 list-disc space-y-0.5 pl-4 text-xs text-[var(--tk-text-muted)]">
+                    {problem.constraints.map((constraint, index) => (
+                      <li key={index}>{constraint}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+            </>
+          ) : (
+            <p className="flex items-center gap-2 text-[var(--tk-text-dim)]">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading challenge…
+            </p>
+          )}
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <CodeEditor
+            value={code}
+            onChange={onCodeChange}
+            filePath="challenge"
+            language={language}
+            autoFocus={open}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function InterviewWorkspace({
   session,
 }: {
@@ -334,6 +478,12 @@ export function InterviewWorkspace({
   const [jumpTarget, setJumpTarget] = useState<LineRange | null>(null);
   const [draftNote, setDraftNote] = useState("");
   const [markdownPreview, setMarkdownPreview] = useState(true);
+  const [challengeOpen, setChallengeOpen] = useState(false);
+  const [challengeProblem, setChallengeProblem] = useState<CodingChallenge | null>(null);
+  const [challengeCode, setChallengeCode] = useState("");
+  const [challengeLanguage, setChallengeLanguage] = useState("python");
+  const [challengeSubmitting, setChallengeSubmitting] = useState(false);
+  const challengeTriggeredRef = useRef(false);
 
   useEffect(() => {
     window.localStorage.setItem(notesStorageKey(notesKey), JSON.stringify(notes));
@@ -354,6 +504,7 @@ export function InterviewWorkspace({
     cameraStream,
     start,
     end,
+    announceAgentText,
   } = useInterviewSession();
 
   // Auto-end when agent signals all rubric areas are covered
@@ -362,6 +513,67 @@ export function InterviewWorkspace({
       void end();
     }
   }, [interviewComplete, status, end]);
+
+  const sessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  const triggerChallenge = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    try {
+      const { problem, intro_text, intro_audio_b64 } = await startCodingChallenge(sid);
+      const lang = problem.default_language in problem.starter_code
+        ? problem.default_language
+        : Object.keys(problem.starter_code)[0] ?? "python";
+      setChallengeProblem(problem);
+      setChallengeLanguage(lang);
+      setChallengeCode(problem.starter_code[lang] ?? "");
+      setChallengeOpen(true);
+      announceAgentText(intro_text, intro_audio_b64);
+    } catch (caught) {
+      console.warn("Failed to start coding challenge", caught);
+    }
+  }, [announceAgentText]);
+
+  const handleChallengeLanguageChange = useCallback(
+    (lang: string) => {
+      setChallengeLanguage(lang);
+      setChallengeCode(challengeProblem?.starter_code[lang] ?? "");
+    },
+    [challengeProblem],
+  );
+
+  // TEST WIRING: auto-slides in CHALLENGE_TRIGGER_DELAY_MS after mount so this
+  // is easy to demo without waiting on real interview pacing.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (challengeTriggeredRef.current) return;
+      challengeTriggeredRef.current = true;
+      void triggerChallenge();
+    }, CHALLENGE_TRIGGER_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [triggerChallenge]);
+
+  const handleChallengeSubmit = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    setChallengeSubmitting(true);
+    try {
+      const { ack_text, ack_audio_b64 } = await submitCodingChallenge(
+        sid,
+        challengeCode,
+        challengeLanguage,
+      );
+      setChallengeOpen(false);
+      announceAgentText(ack_text, ack_audio_b64);
+    } catch (caught) {
+      console.warn("Failed to submit coding challenge", caught);
+    } finally {
+      setChallengeSubmitting(false);
+    }
+  }, [challengeCode, challengeLanguage, announceAgentText]);
 
   const activeFile = files.find((file) => file.path === activePath) ?? files[0] ?? null;
   const activeName = activeFile ? activeFile.path.split("/").pop() : "";
@@ -374,13 +586,28 @@ export function InterviewWorkspace({
     [isMarkdownFile, activeContent],
   );
 
-  // Always expose the latest code to the snapshot loop.
+  // Always expose the latest code to the snapshot loop — the agent reads
+  // this for live Q&A context. While the coding-challenge panel is open,
+  // surface the challenge's problem + the candidate's in-progress solution
+  // instead, so a question asked mid-challenge is answered about the
+  // challenge rather than the (now hidden) main codebase.
   const codeRef = useRef("");
   useEffect(() => {
+    if (challengeOpen && challengeProblem) {
+      codeRef.current = [
+        `// MID-INTERVIEW CODING CHALLENGE: ${challengeProblem.title}`,
+        `// ${challengeProblem.intro}`,
+        `// Problem: ${challengeProblem.description}`,
+        `// Language: ${challengeLanguage}`,
+        "",
+        challengeCode,
+      ].join("\n");
+      return;
+    }
     codeRef.current = activeFile
       ? `// File: ${activeFile.path}\n${activeContent}`
       : "";
-  }, [activeFile, activeContent]);
+  }, [activeFile, activeContent, challengeOpen, challengeProblem, challengeCode, challengeLanguage]);
 
   // Start the interview once when the workspace mounts.
   const startArgsRef = useRef({
@@ -612,7 +839,7 @@ export function InterviewWorkspace({
         </aside>
 
         {/* Code Editor */}
-        <section className="flex min-w-0 flex-1 flex-col bg-[var(--tk-bg)]">
+        <section className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--tk-bg)]">
           <div className="flex h-10 shrink-0 items-center justify-between border-b border-[var(--tk-border)] bg-[var(--tk-bg-elevated)] px-3">
             <div className="flex h-full items-center">
               <div className="tk-mono flex h-full items-center border-b-2 border-[var(--tk-accent)] bg-[var(--tk-bg)] px-3 text-xs text-[var(--tk-accent)]">
@@ -705,6 +932,17 @@ export function InterviewWorkspace({
               No file selected.
             </div>
           )}
+
+          <CodingChallengePanel
+            open={challengeOpen}
+            problem={challengeProblem}
+            code={challengeCode}
+            language={challengeLanguage}
+            onCodeChange={setChallengeCode}
+            onLanguageChange={handleChallengeLanguageChange}
+            onSubmit={handleChallengeSubmit}
+            submitting={challengeSubmitting}
+          />
         </section>
 
         {/* Right Sidebar: Interview / Notes */}

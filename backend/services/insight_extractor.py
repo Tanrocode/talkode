@@ -31,6 +31,9 @@ async def extract_insights(session_id: str, r: redis.Redis):
     code_raw = await r.get(f"session:{session_id}:latest_code")
     final_code = code_raw or "(no code written)"
 
+    challenge_grade_raw = await r.get(f"session:{session_id}:challenge_grade")
+    challenge_grade = json.loads(challenge_grade_raw) if challenge_grade_raw else None
+
     stuck_count = sum(1 for e in events if e.get("type") == "stuck")
     hint_count = sum(1 for e in events if e.get("type") == "hint_request")
 
@@ -42,6 +45,16 @@ async def extract_insights(session_id: str, r: redis.Redis):
     rubric = meta.get("question_guidelines", "(no rubric provided)")
     problem = meta.get("problem_title", "Unknown problem")
     candidate = meta.get("candidate_name", "Candidate")
+
+    challenge_section = ""
+    if challenge_grade:
+        challenge_section = f"""
+
+Mid-interview coding challenge: {challenge_grade.get("title", "Coding challenge")}
+- LLM-graded score (0-4): {challenge_grade.get("score")}
+- Correct: {challenge_grade.get("correct")}
+- Estimated time complexity: {challenge_grade.get("time_complexity")}
+- Grading notes: {challenge_grade.get("feedback")}"""
 
     prompt = f"""You are analyzing a technical coding interview for HR. Produce a structured JSON assessment.
 
@@ -60,7 +73,7 @@ Full conversation:
 Session stats:
 - Times stuck: {stuck_count}
 - Hints requested: {hint_count}
-- Rubric stages reached: {final_stage}
+- Rubric stages reached: {final_stage}{challenge_section}
 
 Return a JSON object with exactly these fields:
 {{
@@ -89,7 +102,7 @@ Return a JSON object with exactly these fields:
   ]
 }}
 
-For rubric_scores: score every question in the rubric on the 0-4 scale, mapping the rubric's Pass/Partial/Fail criteria onto it (Pass ≈ 3-4, Partial ≈ 2, Fail ≈ 0-1). Base the score strictly on evidence from the conversation — what the candidate actually said, not what they should have said. If a rubric question was never reached, score it 0 with reason "not reached in session".
+For rubric_scores: score every question in the rubric on the 0-4 scale, mapping the rubric's Pass/Partial/Fail criteria onto it (Pass ≈ 3-4, Partial ≈ 2, Fail ≈ 0-1). Base the score strictly on evidence from the conversation — what the candidate actually said, not what they should have said. If a rubric question was never reached, score it 0 with reason "not reached in session". Do NOT include the mid-interview coding challenge in rubric_scores — it is scored separately and will be appended automatically.
 For intent_map: include every meaningful candidate turn and key agent turns. Skip pure filler. Labels must be concise past-tense phrases like "explained the filter logic" or "got stuck on edge case". Do not copy these examples directly."""
 
     try:
@@ -111,6 +124,15 @@ For intent_map: include every meaningful candidate turn and key agent turns. Ski
             "rubric_scores": [],
             "intent_map": [],
         }
+
+    if challenge_grade:
+        insights.setdefault("rubric_scores", []).append(
+            {
+                "question": f"Coding challenge: {challenge_grade.get('title', 'Untitled')}",
+                "score": challenge_grade.get("score", 0),
+                "reason": challenge_grade.get("feedback", "No grading notes available."),
+            }
+        )
 
     insights["stuck_count"] = stuck_count
     insights["hint_count"] = hint_count

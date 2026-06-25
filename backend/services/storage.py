@@ -47,14 +47,21 @@ async def ensure_bucket() -> None:
     _bucket_ready = True
 
 
-async def upload_video(session_id: str, data: bytes, content_type: str) -> bool:
+def _object_path(session_id: str, kind: str) -> str:
+    # "camera" keeps the original path so existing recordings stay valid.
+    return f"{session_id}.webm" if kind == "camera" else f"{session_id}-{kind}.webm"
+
+
+async def upload_video(
+    session_id: str, data: bytes, content_type: str, kind: str = "camera"
+) -> bool:
     if not _configured():
         return False
     await ensure_bucket()
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(
-                f"{SUPABASE_URL}/storage/v1/object/{BUCKET}/{session_id}.webm",
+                f"{SUPABASE_URL}/storage/v1/object/{BUCKET}/{_object_path(session_id, kind)}",
                 headers={
                     **_headers(),
                     "Content-Type": content_type,
@@ -72,13 +79,15 @@ async def upload_video(session_id: str, data: bytes, content_type: str) -> bool:
             return False
 
 
-async def get_signed_video_url(session_id: str, expires_in: int = 3600) -> str | None:
+async def get_signed_video_url(
+    session_id: str, expires_in: int = 3600, kind: str = "camera"
+) -> str | None:
     if not _configured():
         return None
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.post(
-                f"{SUPABASE_URL}/storage/v1/object/sign/{BUCKET}/{session_id}.webm",
+                f"{SUPABASE_URL}/storage/v1/object/sign/{BUCKET}/{_object_path(session_id, kind)}",
                 headers=_headers(),
                 json={"expiresIn": expires_in},
                 timeout=10,

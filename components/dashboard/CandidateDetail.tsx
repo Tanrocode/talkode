@@ -5,12 +5,16 @@ import Link from "next/link";
 import { ArrowLeft, Bot, Mic, RefreshCw } from "lucide-react";
 import type { DashboardCandidate } from "@/app/dashboard/data";
 import {
+  getChallengeReview,
   getInsights,
+  getSessionScreenRecording,
   getSessionVideo,
   getTranscript,
   listSessions,
   VOICE_API_BASE,
   type BackendSession,
+  type ChallengeGrade,
+  type CodingChallenge,
   type RubricScore,
   type SessionInsights,
   type TranscriptTurn,
@@ -36,6 +40,19 @@ function formatTime(iso: string | null | undefined) {
         hour: "2-digit",
         minute: "2-digit",
       });
+}
+
+function difficultyClass(difficulty: string) {
+  if (difficulty === "Easy") return "bg-[#e3f9d5] text-[#2d4a0a]";
+  if (difficulty === "Medium") return "bg-[#fff0c2] text-[#6f5314]";
+  if (difficulty === "Hard") return "bg-[#ffe7df] text-[#80321d]";
+  return "bg-[#ebe9e6] text-[#62675e]";
+}
+
+function scoreBadgeClass(score: number) {
+  if (score <= 1) return "bg-[#ffe7df] text-[#80321d]";
+  if (score === 2) return "bg-[#fff0c2] text-[#6f5314]";
+  return "bg-[#d7ff5a] text-[#202322]";
 }
 
 function elapsedLabel(turnTs: number, sessionStartedAt: string) {
@@ -69,6 +86,10 @@ export function CandidateDetail({ candidate }: { candidate: DashboardCandidate }
   const [insights, setInsights] = useState<SessionInsights | null>(null);
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [screenUrl, setScreenUrl] = useState<string | null>(null);
+  const [challengeProblem, setChallengeProblem] = useState<CodingChallenge | null>(null);
+  const [challengeCode, setChallengeCode] = useState<string | null>(null);
+  const [challengeGrade, setChallengeGrade] = useState<ChallengeGrade | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [sessionsListError, setSessionsListError] = useState<string | null>(null);
@@ -82,11 +103,14 @@ export function CandidateDetail({ candidate }: { candidate: DashboardCandidate }
       return;
     }
 
-    const [insightsResult, transcriptResult, videoResult] = await Promise.allSettled([
-      getInsights(match.session_id),
-      getTranscript(match.session_id),
-      getSessionVideo(match.session_id),
-    ]);
+    const [insightsResult, transcriptResult, videoResult, screenResult, challengeResult] =
+      await Promise.allSettled([
+        getInsights(match.session_id),
+        getTranscript(match.session_id),
+        getSessionVideo(match.session_id),
+        getSessionScreenRecording(match.session_id),
+        getChallengeReview(match.session_id),
+      ]);
     if (insightsResult.status === "fulfilled") {
       setInsights(insightsResult.value.insights);
     }
@@ -97,6 +121,14 @@ export function CandidateDetail({ candidate }: { candidate: DashboardCandidate }
     }
     if (videoResult.status === "fulfilled") {
       setVideoUrl(videoResult.value.video_url);
+    }
+    if (screenResult.status === "fulfilled") {
+      setScreenUrl(screenResult.value.video_url);
+    }
+    if (challengeResult.status === "fulfilled") {
+      setChallengeProblem(challengeResult.value.problem);
+      setChallengeCode(challengeResult.value.code);
+      setChallengeGrade(challengeResult.value.grade);
     }
     setDetailLoading(false);
   }, [candidate.name]);
@@ -176,9 +208,62 @@ export function CandidateDetail({ candidate }: { candidate: DashboardCandidate }
         </p>
       ) : null}
 
-      {videoUrl ? (
-        <section className="mt-6 overflow-hidden rounded-[8px] border border-[#f0eeea] bg-white">
-          <video controls src={videoUrl} className="w-full max-h-[480px] bg-black" />
+      {videoUrl || screenUrl ? (
+        <section className="mt-6 grid gap-4 sm:grid-cols-2">
+          {videoUrl ? (
+            <div className="overflow-hidden rounded-[8px] border border-[#f0eeea] bg-white">
+              <p className="border-b border-[#f0eeea] px-3 py-2 text-xs font-semibold text-[#62675e]">
+                Camera
+              </p>
+              <video controls src={videoUrl} className="w-full max-h-[360px] bg-black" />
+            </div>
+          ) : null}
+          {screenUrl ? (
+            <div className="overflow-hidden rounded-[8px] border border-[#f0eeea] bg-white">
+              <p className="border-b border-[#f0eeea] px-3 py-2 text-xs font-semibold text-[#62675e]">
+                Screen recording
+              </p>
+              <video controls src={screenUrl} className="w-full max-h-[360px] bg-black" />
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      {challengeProblem ? (
+        <section className="mt-6 rounded-[8px] border border-[#f0eeea] bg-white px-5 py-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-base font-bold text-[#202322]">
+              Mid-interview coding challenge: {challengeProblem.title}
+            </h2>
+            {challengeGrade ? (
+              <span
+                className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold ${scoreBadgeClass(challengeGrade.score)}`}
+              >
+                {challengeGrade.score}/4
+              </span>
+            ) : null}
+          </div>
+          <span
+            className={`mt-1 inline-block rounded px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${difficultyClass(challengeProblem.difficulty)}`}
+          >
+            {challengeProblem.difficulty}
+          </span>
+          <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-[#3d4239]">
+            {challengeProblem.description}
+          </p>
+          {challengeGrade ? (
+            <p className="mt-3 text-sm text-[#3d4239]">
+              <strong>Est. time complexity:</strong> {challengeGrade.time_complexity}
+              <br />
+              <strong>Grading notes:</strong> {challengeGrade.feedback}
+            </p>
+          ) : null}
+          <p className="mt-4 text-xs font-semibold uppercase tracking-wide text-[#62675e]">
+            Candidate&apos;s submitted response
+          </p>
+          <pre className="mt-2 max-h-[420px] overflow-auto whitespace-pre rounded-[6px] border border-[#f0eeea] bg-[#faf9f7] p-4 font-mono text-xs text-[#202322]">
+            {challengeCode || "(no submission recorded)"}
+          </pre>
         </section>
       ) : null}
 

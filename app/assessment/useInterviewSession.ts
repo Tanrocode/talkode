@@ -5,6 +5,7 @@ import {
   createSession,
   endSession,
   postSnapshot,
+  uploadInterviewScreenRecording,
   uploadInterviewVideo,
   voiceWsBase,
   type CreateSessionBody,
@@ -101,6 +102,9 @@ export function useInterviewSession() {
   const videoStreamRef = useRef<MediaStream | null>(null);
   const videoRecorderRef = useRef<MediaRecorder | null>(null);
   const videoChunksRef = useRef<Blob[]>([]);
+  const screenStreamRef = useRef<MediaStream | null>(null);
+  const screenRecorderRef = useRef<MediaRecorder | null>(null);
+  const screenChunksRef = useRef<Blob[]>([]);
   const snapshotTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const getCodeRef = useRef<() => string>(() => "");
   const startedRef = useRef(false);
@@ -108,6 +112,35 @@ export function useInterviewSession() {
   const pushMessage = useCallback((role: FeedMessage["role"], text: string) => {
     setMessages((prev) => [...prev, { id: randomId(), role, text }]);
   }, []);
+
+  // Plays base64-encoded TTS audio outside the live WS flow (e.g. coding
+  // challenge intro/ack), reusing the same speaking-indicator state.
+  const playAgentAudio = useCallback((audioB64: string) => {
+    const binary = atob(audioB64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: "audio/mpeg" });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    setSpeaking(true);
+    audio.onended = () => {
+      setSpeaking(false);
+      URL.revokeObjectURL(url);
+    };
+    audio.onerror = () => {
+      setSpeaking(false);
+      URL.revokeObjectURL(url);
+    };
+    audio.play().catch(() => setSpeaking(false));
+  }, []);
+
+  const announceAgentText = useCallback(
+    (text: string, audioB64: string | null) => {
+      pushMessage("agent", text);
+      if (audioB64) playAgentAudio(audioB64);
+    },
+    [pushMessage, playAgentAudio],
+  );
 
   const teardownAudio = useCallback(() => {
     if (snapshotTimerRef.current) {
@@ -132,6 +165,8 @@ export function useInterviewSession() {
     streamRef.current = null;
     videoStreamRef.current?.getTracks().forEach((track) => track.stop());
     videoStreamRef.current = null;
+    screenStreamRef.current?.getTracks().forEach((track) => track.stop());
+    screenStreamRef.current = null;
     setCameraStream(null);
   }, []);
 
@@ -229,6 +264,49 @@ export function useInterviewSession() {
           videoRecorder.start(1000);
         } catch (caught) {
           console.warn("Camera unavailable, continuing without video.", caught);
+        }
+
+        // Screen recording of this tab/platform, for the recruiter to review
+        // how the coding actually went. The browser requires an explicit
+        // share-this-screen permission prompt for getDisplayMedia — there's
+        // no way to skip that even though it's only capturing our own page.
+        // These Chrome-only hints pre-select "this tab" and hide the
+        // window/entire-screen/other-tabs options, so the candidate can't
+        // accidentally share the wrong thing — but the one-click confirm
+        // itself can't be removed, that's a browser security boundary.
+        // Best-effort: a denied/cancelled prompt must never block the interview.
+        try {
+          const screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: { frameRate: 12, displaySurface: "browser" },
+            audio: false,
+            preferCurrentTab: true,
+            selfBrowserSurface: "include",
+            surfaceSwitching: "exclude",
+            monitorTypeSurfaces: "exclude",
+          } as DisplayMediaStreamOptions);
+          screenStreamRef.current = screenStream;
+
+          const screenMimeType = pickVideoRecorderMime();
+          const screenRecorder = new MediaRecorder(
+            screenStream,
+            screenMimeType ? { mimeType: screenMimeType } : undefined,
+          );
+          screenRecorderRef.current = screenRecorder;
+          screenChunksRef.current = [];
+          screenRecorder.ondataavailable = (event) => {
+            if (event.data.size > 0) screenChunksRef.current.push(event.data);
+          };
+          screenRecorder.start(1000);
+
+          // If the candidate stops sharing via the browser's own UI, just
+          // stop that recorder — the interview itself keeps going.
+          screenStream.getVideoTracks()[0]?.addEventListener("ended", () => {
+            if (screenRecorderRef.current && screenRecorderRef.current.state !== "inactive") {
+              screenRecorderRef.current.stop();
+            }
+          });
+        } catch (caught) {
+          console.warn("Screen recording unavailable, continuing without it.", caught);
         }
 
         // WebSocket for transcript + agent responses.
@@ -355,6 +433,28 @@ export function useInterviewSession() {
       videoRecorder.stop();
     });
 
+    const screenRecorder = screenRecorderRef.current;
+    const finalScreenBlob = await new Promise<Blob | null>((resolve) => {
+      if (!screenRecorder || screenRecorder.state === "inactive") {
+        resolve(
+          screenChunksRef.current.length
+            ? new Blob(screenChunksRef.current, {
+                type: screenChunksRef.current[0]?.type || "video/webm",
+              })
+            : null,
+        );
+        return;
+      }
+      screenRecorder.onstop = () => {
+        resolve(
+          new Blob(screenChunksRef.current, {
+            type: screenRecorder.mimeType || "video/webm",
+          }),
+        );
+      };
+      screenRecorder.stop();
+    });
+
     teardownAudio();
 
     if (id && finalBlob && finalBlob.size > 0) {
@@ -375,6 +475,14 @@ export function useInterviewSession() {
       } catch (caught) {
         // Video recording is a nice-to-have for recruiters — never fail submission over it.
         console.warn("Video upload failed.", caught);
+      }
+    }
+
+    if (id && finalScreenBlob && finalScreenBlob.size > 0) {
+      try {
+        await uploadInterviewScreenRecording(id, finalScreenBlob);
+      } catch (caught) {
+        console.warn("Screen recording upload failed.", caught);
       }
     }
 
@@ -399,5 +507,6 @@ export function useInterviewSession() {
     cameraStream,
     start,
     end,
+    announceAgentText,
   };
 }

@@ -112,6 +112,100 @@ export async function getSessionVideo(
   return asJson(res, "getSessionVideo");
 }
 
+export async function uploadInterviewScreenRecording(
+  sessionId: string,
+  video: Blob,
+): Promise<{ stored: boolean }> {
+  const form = new FormData();
+  form.append("video", video, "screen.webm");
+  const res = await fetch(`${VOICE_API_BASE}/session/${sessionId}/screen`, {
+    method: "POST",
+    body: form,
+  });
+  return asJson(res, "uploadInterviewScreenRecording");
+}
+
+export async function getSessionScreenRecording(
+  sessionId: string,
+): Promise<{ video_url: string | null }> {
+  const res = await fetch(
+    `${VOICE_API_BASE}/dashboard/session/${sessionId}/screen`,
+    { cache: "no-store" },
+  );
+  return asJson(res, "getSessionScreenRecording");
+}
+
+export type ChallengeExample = {
+  example_num: number;
+  example_text: string;
+  images: string[];
+};
+
+export type CodingChallenge = {
+  frontend_id: string;
+  title: string;
+  difficulty: string;
+  topics: string[];
+  intro: string;
+  description: string;
+  examples: ChallengeExample[];
+  constraints: string[];
+  starter_code: Record<string, string>;
+  default_language: string;
+};
+
+export async function startCodingChallenge(
+  sessionId: string,
+): Promise<{
+  problem: CodingChallenge;
+  intro_text: string;
+  intro_audio_b64: string | null;
+}> {
+  const res = await fetch(`${VOICE_API_BASE}/session/${sessionId}/challenge`, {
+    method: "POST",
+  });
+  return asJson(res, "startCodingChallenge");
+}
+
+export async function submitCodingChallenge(
+  sessionId: string,
+  code: string,
+  language: string,
+): Promise<{ ack_text: string; ack_audio_b64: string | null }> {
+  const res = await fetch(
+    `${VOICE_API_BASE}/session/${sessionId}/challenge/submit`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, language }),
+    },
+  );
+  return asJson(res, "submitCodingChallenge");
+}
+
+export type ChallengeGrade = {
+  score: number;
+  correct: boolean;
+  time_complexity: string;
+  feedback: string;
+  title: string;
+};
+
+export async function getChallengeReview(
+  sessionId: string,
+): Promise<{
+  problem: CodingChallenge | null;
+  code: string | null;
+  language: string | null;
+  grade: ChallengeGrade | null;
+}> {
+  const res = await fetch(
+    `${VOICE_API_BASE}/dashboard/session/${sessionId}/challenge`,
+    { cache: "no-store" },
+  );
+  return asJson(res, "getChallengeReview");
+}
+
 export async function listSessions(): Promise<{ sessions: BackendSession[] }> {
   const res = await fetch(`${VOICE_API_BASE}/dashboard/sessions`, {
     cache: "no-store",

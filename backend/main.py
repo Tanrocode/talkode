@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 
 from services.redis_client import ping
-from routers import session, interview, snapshot, session_end, dashboard, video
+from routers import session, interview, snapshot, session_end, dashboard, video, challenge
 
 
 @asynccontextmanager
@@ -35,6 +35,7 @@ app.include_router(snapshot.router)
 app.include_router(session_end.router)
 app.include_router(dashboard.router)
 app.include_router(video.router)
+app.include_router(challenge.router)
 
 
 @app.get("/health")

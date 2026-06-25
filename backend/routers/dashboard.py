@@ -51,5 +51,31 @@ async def get_insights(session_id: str):
 
 @router.get("/session/{session_id}/video")
 async def get_video(session_id: str):
-    url = await storage.get_signed_video_url(session_id)
+    url = await storage.get_signed_video_url(session_id, kind="camera")
     return {"video_url": url}
+
+
+@router.get("/session/{session_id}/screen")
+async def get_screen_recording(session_id: str):
+    url = await storage.get_signed_video_url(session_id, kind="screen")
+    return {"video_url": url}
+
+
+@router.get("/session/{session_id}/challenge")
+async def get_challenge_review(session_id: str):
+    r = get_redis()
+
+    if not await r.exists(f"session:{session_id}:meta"):
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    problem_raw = await r.get(f"session:{session_id}:challenge")
+    code = await r.get(f"session:{session_id}:challenge_code")
+    grade_raw = await r.get(f"session:{session_id}:challenge_grade")
+    language = await r.get(f"session:{session_id}:challenge_language")
+
+    return {
+        "problem": json.loads(problem_raw) if problem_raw else None,
+        "code": code,
+        "language": language,
+        "grade": json.loads(grade_raw) if grade_raw else None,
+    }
