@@ -46,3 +46,6 @@ backend/services/__pycache__/
 *.pyc
 backend/.venv/
 backend/agent_debug.log
+
+# Local Netlify folder
+.netlify
