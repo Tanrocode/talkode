@@ -26,6 +26,7 @@ export type DashboardAssessment = {
   candidateAccessCode: string;
   codebaseTemplateId: string | null;
   completionPercent: number;
+  dueAt: string | null;
   dueLabel: string;
   id: string;
   jobDescription: string;
@@ -158,6 +159,7 @@ function formatAssessment(row: AssessmentRow): DashboardAssessment {
     candidateAccessCode: row.candidate_access_code,
     codebaseTemplateId: row.codebase_template_id,
     completionPercent: row.completion_percent,
+    dueAt: row.due_at,
     dueLabel: row.due_at ? formatDate(row.due_at) : "No due date",
     id: row.id,
     jobDescription: row.job_description,
@@ -495,9 +497,14 @@ export async function getAssessmentDetailsData(
     };
   }
 
+  const { count: candidateCount } = await supabase
+    .from("candidates")
+    .select("id", { count: "exact", head: true })
+    .eq("assessment_id", assessmentId);
+
   if (!assessment.codebase_template_id) {
     return {
-      assessment: formatAssessment(assessment),
+      assessment: { ...formatAssessment(assessment), candidateCount: candidateCount ?? 0 },
       codebaseFiles: [],
     };
   }
@@ -510,14 +517,14 @@ export async function getAssessmentDetailsData(
 
   if (filesError) {
     return {
-      assessment: formatAssessment(assessment),
+      assessment: { ...formatAssessment(assessment), candidateCount: candidateCount ?? 0 },
       codebaseFiles: [],
       error: filesError.message,
     };
   }
 
   return {
-    assessment: formatAssessment(assessment),
+    assessment: { ...formatAssessment(assessment), candidateCount: candidateCount ?? 0 },
     codebaseFiles: (codebaseFiles ?? []).map(formatCodebaseFile),
   };
 }

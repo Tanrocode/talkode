@@ -7,6 +7,7 @@ import {
   type AssessmentTechnology,
   type RubricSource,
 } from "@/app/dashboard/data";
+import { hasSupabaseConfig } from "@/lib/supabase/config";
 import { createClient } from "@/lib/supabase/server";
 import { extractRubricTopics } from "@/lib/voiceAgent";
 
@@ -261,4 +262,173 @@ export async function createAssessment(
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/assessments");
   redirect(`/dashboard/assessments/${insertedAssessment.id}?created=1`);
+}
+
+type UpdateAssessmentField =
+  | "expirationDate"
+  | "jobDescription"
+  | "rubricText"
+  | "technologies"
+  | "timeLimitMinutes"
+  | "title";
+
+export type UpdateAssessmentFormState = {
+  fieldErrors?: Partial<Record<UpdateAssessmentField, string>>;
+  message?: string;
+  status: "idle" | "error" | "success";
+};
+
+function readUpdateFormString(formData: FormData, key: UpdateAssessmentField) {
+  const value = formData.get(key);
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export async function updateAssessment(
+  _previousState: UpdateAssessmentFormState,
+  formData: FormData,
+): Promise<UpdateAssessmentFormState> {
+  const assessmentIdValue = formData.get("assessmentId");
+  const assessmentId =
+    typeof assessmentIdValue === "string" ? assessmentIdValue.trim() : "";
+  const title = readUpdateFormString(formData, "title");
+  const jobDescription = readUpdateFormString(formData, "jobDescription");
+  const rubricText = readUpdateFormString(formData, "rubricText");
+  const expirationDateValue = readUpdateFormString(formData, "expirationDate");
+  const timeLimitValue = readUpdateFormString(formData, "timeLimitMinutes");
+  const timeLimitMinutes = Number(timeLimitValue);
+  const expirationDate = parseExpirationDate(expirationDateValue);
+  const selectedTechnologies = Array.from(
+    new Set(
+      formData
+        .getAll("technologies")
+        .filter((technology): technology is string => typeof technology === "string")
+        .filter(isAssessmentTechnology),
+    ),
+  );
+  const fieldErrors: UpdateAssessmentFormState["fieldErrors"] = {};
+
+  if (!assessmentId) {
+    return { message: "Missing assessment.", status: "error" };
+  }
+
+  if (title.length < 2) {
+    fieldErrors.title = "Enter an assessment title.";
+  }
+
+  if (jobDescription.length < 10) {
+    fieldErrors.jobDescription = "Enter a job description.";
+  }
+
+  if (!expirationDate || expirationDate.getTime() < Date.now()) {
+    fieldErrors.expirationDate = "Choose a future expiration date.";
+  }
+
+  if (
+    !Number.isInteger(timeLimitMinutes) ||
+    timeLimitMinutes < 20 ||
+    timeLimitMinutes > 60
+  ) {
+    fieldErrors.timeLimitMinutes = "Use a time limit from 20 to 60 minutes.";
+  }
+
+  if (selectedTechnologies.length === 0) {
+    fieldErrors.technologies = "Choose at least one technology.";
+  }
+
+  if (Object.keys(fieldErrors).length > 0) {
+    return {
+      fieldErrors,
+      message: "Check the highlighted fields.",
+      status: "error",
+    };
+  }
+
+  if (!expirationDate) {
+    return {
+      message: "Check the highlighted fields.",
+      status: "error",
+    };
+  }
+
+  if (!hasSupabaseConfig()) {
+    return {
+      message: "The database is not configured yet.",
+      status: "error",
+    };
+  }
+
+  const supabase = await createClient();
+  const { data: userResult, error: userError } = await supabase.auth.getUser();
+
+  if (userError || !userResult.user) {
+    return {
+      message: "Sign in to edit assessments.",
+      status: "error",
+    };
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("recruiter_profiles")
+    .select("organization_id,status")
+    .eq("id", userResult.user.id)
+    .maybeSingle();
+
+  if (profileError || !profile || profile.status !== "active") {
+    return {
+      message: "Active recruiter access is required.",
+      status: "error",
+    };
+  }
+
+  const { data: existingAssessment, error: existingError } = await supabase
+    .from("assessments")
+    .select("rubric_text")
+    .eq("id", assessmentId)
+    .eq("organization_id", profile.organization_id)
+    .maybeSingle();
+
+  if (existingError || !existingAssessment) {
+    return {
+      message: "Assessment not found.",
+      status: "error",
+    };
+  }
+
+  let rubricTopics: string[] | undefined;
+  if (rubricText !== existingAssessment.rubric_text) {
+    try {
+      rubricTopics = (await extractRubricTopics(rubricText)).topics;
+    } catch {
+      // Categorization failed — leave the existing topic list in place
+      // rather than blocking the rest of the edit.
+      rubricTopics = undefined;
+    }
+  }
+
+  const { error: updateError } = await supabase
+    .from("assessments")
+    .update({
+      due_at: expirationDate.toISOString(),
+      job_description: jobDescription,
+      rubric_text: rubricText,
+      technologies: selectedTechnologies,
+      time_limit_minutes: timeLimitMinutes,
+      title,
+      ...(rubricTopics ? { rubric_topics: rubricTopics } : {}),
+    })
+    .eq("id", assessmentId)
+    .eq("organization_id", profile.organization_id);
+
+  if (updateError) {
+    return {
+      message: updateError.message,
+      status: "error",
+    };
+  }
+
+  revalidatePath(`/dashboard/assessments/${assessmentId}`);
+  revalidatePath("/dashboard/assessments");
+  revalidatePath("/dashboard");
+
+  return { status: "success" };
 }
