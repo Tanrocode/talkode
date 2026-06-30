@@ -8,6 +8,7 @@ import {
   type RubricSource,
 } from "@/app/dashboard/data";
 import { createClient } from "@/lib/supabase/server";
+import { extractRubricTopics } from "@/lib/voiceAgent";
 
 type AssessmentField =
   | "expirationDate"
@@ -223,6 +224,13 @@ export async function createAssessment(
     .map((technology) => assessmentTechnologyLabels[technology])
     .join(" + ");
 
+  let rubricTopics: string[] = [];
+  try {
+    rubricTopics = (await extractRubricTopics(rubricText)).topics;
+  } catch {
+    rubricTopics = [];
+  }
+
   const { data: insertedAssessment, error: insertError } = await supabase
     .from("assessments")
     .insert({
@@ -234,6 +242,7 @@ export async function createAssessment(
       role_name: technologyLabel,
       rubric_source: rubricSourceValue,
       rubric_text: rubricText,
+      rubric_topics: rubricTopics,
       status: "draft",
       technologies: selectedTechnologies,
       time_limit_minutes: timeLimitMinutes,

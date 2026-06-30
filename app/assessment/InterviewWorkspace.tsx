@@ -35,10 +35,6 @@ import {
   type CodingChallenge,
 } from "@/lib/voiceAgent";
 
-// TEST WIRING: the coding challenge auto-slides in this many ms after the
-// interview starts. Swap this for a real agent-driven trigger (e.g. a WS
-// message sent once the interviewer decides it's a good moment) later.
-const CHALLENGE_TRIGGER_DELAY_MS = 15000;
 
 const TK_MONO =
   'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
@@ -501,6 +497,7 @@ export function InterviewWorkspace({
     sessionId,
     speaking,
     interviewComplete,
+    challengeReady,
     cameraStream,
     start,
     end,
@@ -545,16 +542,16 @@ export function InterviewWorkspace({
     [challengeProblem],
   );
 
-  // TEST WIRING: auto-slides in CHALLENGE_TRIGGER_DELAY_MS after mount so this
-  // is easy to demo without waiting on real interview pacing.
+  // The backend decides when a topic has closed and the candidate has shown
+  // enough understanding (see should_trigger_challenge in agent.py), then
+  // pushes coding_challenge_ready over the interview WebSocket. Wait for the
+  // interviewer to finish speaking the closing line for that turn first —
+  // otherwise the challenge intro's audio plays on top of it.
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (challengeTriggeredRef.current) return;
-      challengeTriggeredRef.current = true;
-      void triggerChallenge();
-    }, CHALLENGE_TRIGGER_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [triggerChallenge]);
+    if (!challengeReady || challengeTriggeredRef.current || speaking) return;
+    challengeTriggeredRef.current = true;
+    void triggerChallenge();
+  }, [challengeReady, speaking, triggerChallenge]);
 
   const handleChallengeSubmit = useCallback(async () => {
     const sid = sessionIdRef.current;
@@ -616,6 +613,7 @@ export function InterviewWorkspace({
     problem_title: session.title,
     problem_statement: buildProblemStatement(session),
     question_guidelines: session.rubric,
+    rubric_topics: session.rubricTopics,
   });
   useEffect(() => {
     void start({ ...startArgsRef.current, getCode: () => codeRef.current });

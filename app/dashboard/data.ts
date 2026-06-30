@@ -35,6 +35,7 @@ export type DashboardAssessment = {
   technologyLabel: string;
   timeLimitMinutes: number;
   rubricSource: RubricSource;
+  rubricText: string;
   status: AssessmentStatus;
   statusLabel: string;
   title: string;
@@ -166,6 +167,7 @@ function formatAssessment(row: AssessmentRow): DashboardAssessment {
     technologyLabel,
     timeLimitMinutes: row.time_limit_minutes,
     rubricSource: row.rubric_source,
+    rubricText: row.rubric_text,
     status: row.status,
     statusLabel: assessmentStatusLabels[row.status],
     title: row.title,
@@ -314,7 +316,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     supabase
       .from("assessments")
       .select(
-        "id, organization_id, title, role_name, status, time_limit_minutes, technologies, frontend_technology, backend_technology, job_description, codebase_template_id, rubric_source, rubric_text, candidate_access_code, due_at, completion_percent, median_score, created_by, created_at, updated_at",
+        "id, organization_id, title, role_name, status, time_limit_minutes, technologies, frontend_technology, backend_technology, job_description, codebase_template_id, rubric_source, rubric_text, rubric_topics, candidate_access_code, due_at, completion_percent, median_score, created_by, created_at, updated_at",
       )
       .eq("organization_id", profile.organization_id)
       .order("updated_at", { ascending: false }),
@@ -471,7 +473,7 @@ export async function getAssessmentDetailsData(
   const { data: assessment, error: assessmentError } = await supabase
     .from("assessments")
     .select(
-      "id, organization_id, title, role_name, status, time_limit_minutes, technologies, frontend_technology, backend_technology, job_description, codebase_template_id, rubric_source, rubric_text, candidate_access_code, due_at, completion_percent, median_score, created_by, created_at, updated_at",
+      "id, organization_id, title, role_name, status, time_limit_minutes, technologies, frontend_technology, backend_technology, job_description, codebase_template_id, rubric_source, rubric_text, rubric_topics, candidate_access_code, due_at, completion_percent, median_score, created_by, created_at, updated_at",
     )
     .eq("id", assessmentId)
     .eq("organization_id", profile.organization_id)

@@ -16,6 +16,7 @@ class CreateSessionRequest(BaseModel):
     problem_title: str
     problem_statement: str
     question_guidelines: str = ""  # rubric content from assessment_rubric_templates
+    rubric_topics: list[str] = []  # canonical topics, categorized once at rubric upload time
 
 
 @router.post("")
@@ -30,6 +31,7 @@ async def create_session(body: CreateSessionRequest):
         "problem_title": body.problem_title,
         "problem_statement": body.problem_statement,
         "question_guidelines": body.question_guidelines,
+        "rubric_topics": body.rubric_topics,
         "started_at": datetime.now(timezone.utc).isoformat(),
         "ended_at": None,
         "status": "active",

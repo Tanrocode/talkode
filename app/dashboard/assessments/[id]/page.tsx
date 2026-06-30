@@ -127,6 +127,24 @@ export default async function AssessmentDetailPage({
                 {assessment.jobDescription}
               </p>
             </div>
+
+            <div className="mt-5 border-t border-[#f0eeea] pt-4">
+              <p className="text-xs font-semibold text-[#62675e]">
+                Rubric{" "}
+                <span className="font-normal text-[#9aa093]">
+                  ({assessment.rubricSource === "uploaded" ? "uploaded" : "generated"})
+                </span>
+              </p>
+              {assessment.rubricText ? (
+                <pre className="mt-2 whitespace-pre-wrap rounded-[6px] border border-[#f0eeea] bg-[#fbfaf7] p-4 text-sm leading-6 text-[#4f554d]">
+                  {assessment.rubricText}
+                </pre>
+              ) : (
+                <p className="mt-2 text-sm text-[#62675e]">
+                  No rubric is attached to this assessment yet.
+                </p>
+              )}
+            </div>
           </article>
         </section>
       ) : null}

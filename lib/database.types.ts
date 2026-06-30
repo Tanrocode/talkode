@@ -50,6 +50,7 @@ export type Database = {
           codebase_template_id: string | null;
           rubric_source: Database["public"]["Enums"]["rubric_source"];
           rubric_text: string;
+          rubric_topics: Json;
           candidate_access_code: string;
           due_at: string | null;
           completion_percent: number;
@@ -72,6 +73,7 @@ export type Database = {
           codebase_template_id?: string | null;
           rubric_source?: Database["public"]["Enums"]["rubric_source"];
           rubric_text?: string;
+          rubric_topics?: Json;
           candidate_access_code?: string;
           due_at?: string | null;
           completion_percent?: number;
@@ -94,6 +96,7 @@ export type Database = {
           codebase_template_id?: string | null;
           rubric_source?: Database["public"]["Enums"]["rubric_source"];
           rubric_text?: string;
+          rubric_topics?: Json;
           candidate_access_code?: string;
           due_at?: string | null;
           completion_percent?: number;
@@ -359,6 +362,8 @@ export type Database = {
           expires_at: string | null;
           technologies: Database["public"]["Enums"]["assessment_technology"][];
           code_files: Json;
+          rubric_text: string | null;
+          rubric_topics: Json | null;
         }>;
       };
     };

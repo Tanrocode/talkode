@@ -1,4 +1,5 @@
 import json
+import re
 import time
 
 import redis.asyncio as redis
@@ -6,6 +7,72 @@ from openai import AsyncOpenAI
 import os
 
 client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
+
+_RUBRIC_META_SECTIONS = {
+    "interview flow", "expected signals", "project structure",
+    "candidate task", "reported issues", "local api", "overview",
+    "instructions", "notes", "context", "background", "scoring", "rubric",
+}
+
+
+def _extract_rubric_questions(rubric: str) -> list[str]:
+    """Return the list of question/topic titles from rubric markdown.
+
+    Tries three formats in order:
+    1. Structured '## Q1: Title' headings (assessment-creation generated format).
+    2. Generic '## Heading' lines that aren't known meta-sections.
+    3. Bullet-point dimension list before the first '##' heading (e.g.
+       'Score candidates across N dimensions:\\n- Code Navigation\\n- ...')."""
+    q_style = re.findall(r"^##\s+(Q\d+[^#\n]+)", rubric, re.MULTILINE)
+    if q_style:
+        return [h.strip() for h in q_style]
+
+    headings = re.findall(r"^##\s+(.+?)$", rubric, re.MULTILINE)
+    non_meta = [
+        h.strip() for h in headings
+        if not any(meta in h.strip().lower() for meta in _RUBRIC_META_SECTIONS)
+    ]
+    if non_meta:
+        return non_meta
+
+    # Last resort: bullet list in the preamble before the first ## heading.
+    first_heading = re.search(r"^##", rubric, re.MULTILINE)
+    preamble = rubric[:first_heading.start()] if first_heading else rubric
+    bullets = re.findall(r"^[-*]\s+(.+?)$", preamble, re.MULTILINE)
+    return [b.strip() for b in bullets if b.strip()]
+
+
+def _enforce_rubric_completeness(
+    insights: dict, rubric: str, topics: list[str] | None = None
+) -> None:
+    """Backfill any rubric topics the LLM silently omitted with score=0.
+
+    The LLM is instructed to include every rubric area (even ones never
+    reached, scored 0), but it doesn't always comply.  This deterministic
+    pass ensures the UI always shows the full rubric.
+
+    Prefers the canonical, LLM-categorized `topics` list (computed once at
+    rubric upload time) over the regex-based heading extraction, since it's
+    stable across rubric formats — `_extract_rubric_questions` is only a
+    fallback for rubrics created before that categorization existed."""
+    questions = topics if topics else _extract_rubric_questions(rubric)
+    if not questions:
+        return
+
+    existing = insights.get("rubric_scores", [])
+    existing_text = " ".join(item["question"].lower() for item in existing)
+
+    for q in questions:
+        significant_words = [w for w in q.lower().split() if len(w) >= 4]
+        already_present = any(word in existing_text for word in significant_words)
+        if not already_present:
+            existing.append({
+                "question": q,
+                "score": 0,
+                "reason": "Not reached in session.",
+            })
+
+    insights["rubric_scores"] = existing
 
 
 async def extract_insights(session_id: str, r: redis.Redis):
@@ -44,6 +111,7 @@ async def extract_insights(session_id: str, r: redis.Redis):
 
     rubric = meta.get("question_guidelines", "").strip()
     has_rubric = bool(rubric)
+    rubric_topics = [t for t in meta.get("rubric_topics", []) if isinstance(t, str) and t.strip()]
     rubric_section = rubric if has_rubric else "(no rubric was configured for this assessment)"
     problem = meta.get("problem_title", "Unknown problem")
     candidate = meta.get("candidate_name", "Candidate")
@@ -71,6 +139,11 @@ Problem: {problem}
 
 Rubric:
 {rubric_section}
+{(
+        "\nCanonical scoring topics — report rubric_scores using exactly these titles, in this exact order, "
+        "one entry per topic (still grade based on the full rubric content above, this list only fixes how "
+        "the result is labeled):\n" + "\n".join(f"- {t}" for t in rubric_topics)
+    ) if rubric_topics else ""}
 
 Final code:
 {final_code}
@@ -92,7 +165,9 @@ Return a JSON object with exactly these fields:
   "advance_reason": "one sentence explaining the recommendation",
   "rubric_scores": [
     {{
-      "question": "short question title matching the rubric heading, e.g. Q1: API Layer",
+      "question": "{(
+        "must be one of the canonical scoring topics listed above, verbatim"
+    ) if rubric_topics else "short question title matching the rubric heading, e.g. Q1: API Layer"}",
       "score": <integer 0-4, where 0 = not reached/no evidence, 1 = far below expectations, 2 = partial understanding, 3 = meets expectations (equivalent to old "pass"), 4 = exceeds expectations with exceptional depth/clarity>,
       "reason": "1-3 sentences citing specific evidence or direct quotes from the conversation that justify this score"
     }},
@@ -110,7 +185,30 @@ Return a JSON object with exactly these fields:
   ]
 }}
 
+For advance_recommend: this must be mechanically consistent with the rubric_scores you produce, not a separate
+holistic vibe. Do not let strong communication, confidence, or general competence outweigh specific gaps — a
+candidate who explains themselves well but gets the substance wrong should not advance on the strength of their
+communication alone.
+- advance_recommend = false if ANY single rubric area scored 0-1 for ANY reason — including "not reached in
+  session". A rubric area scored 0 means the candidate did not demonstrate that competency; the interview agent
+  is designed to cover the entire rubric, so "not reached" is a gap, not an exemption. Also false if two or
+  more areas scored 2.
+- advance_recommend = true only if most rubric areas scored 3-4, with at most one area at 2, and NO area at 0-1.
+- If a mid-interview coding challenge score is present, weigh it the same as any other rubric area under the
+  rule above — a low challenge score counts as a gap like any other, it does not get special leniency for being
+  "just a detour."
+- advance_reason must name the specific rubric area(s) driving the decision (e.g. "scored low on error handling
+  and performance despite strong API/data-flow understanding"), not a generic statement about communication.
+
 For rubric_scores: {(
+        "score every canonical topic listed above on the 0-4 scale, by grading the candidate against whatever part "
+        "of the full rubric text that topic corresponds to (Pass ≈ 3-4, Partial ≈ 2, Fail ≈ 0-1). Return exactly "
+        "one entry per canonical topic, using its title verbatim as \"question\" — never invent, split, merge, or "
+        "rename topics. Every score above 0 must be justified by something the CANDIDATE actually said in the "
+        "conversation above — not by what a good candidate would likely have said, and not by inference from the "
+        "codebase or task description alone. If a topic was never reached or the candidate never addressed it, "
+        "score it 0 with reason \"not reached in session\"."
+    ) if rubric_topics else (
         "score every question in the rubric on the 0-4 scale, mapping the rubric's Pass/Partial/Fail criteria onto it "
         "(Pass ≈ 3-4, Partial ≈ 2, Fail ≈ 0-1). Use ONLY the questions explicitly listed in the Rubric section above — "
         "never invent additional questions from the README, the code, or the candidate task description, even if they "
@@ -150,6 +248,10 @@ For intent_map: include every meaningful candidate turn and key agent turns. Ski
         # Hard guard, independent of whether the model followed instructions:
         # with no real rubric, any rubric_scores would necessarily be invented.
         insights["rubric_scores"] = []
+    else:
+        # Deterministic fallback: backfill any rubric topics the LLM silently
+        # omitted (e.g. areas never reached during the session).
+        _enforce_rubric_completeness(insights, rubric, rubric_topics)
 
     if challenge_grade:
         insights.setdefault("rubric_scores", []).append(

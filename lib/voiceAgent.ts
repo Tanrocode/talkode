@@ -15,6 +15,7 @@ export type CreateSessionBody = {
   problem_title: string;
   problem_statement: string;
   question_guidelines: string;
+  rubric_topics?: string[];
 };
 
 export type BackendSession = {
@@ -36,6 +37,7 @@ export type InterviewServerMessage =
   | { type: "transcript_chunk"; text: string; is_final?: boolean }
   | { type: "session_started"; text: string }
   | { type: "interview_complete" }
+  | { type: "coding_challenge_ready" }
   | { type: "error"; text: string };
 
 async function asJson<T>(res: Response, label: string): Promise<T> {
@@ -49,6 +51,17 @@ async function asJson<T>(res: Response, label: string): Promise<T> {
     throw new Error(`${label} failed (${res.status}): ${detail}`);
   }
   return res.json() as Promise<T>;
+}
+
+export async function extractRubricTopics(
+  rubricText: string,
+): Promise<{ topics: string[] }> {
+  const res = await fetch(`${VOICE_API_BASE}/rubric/extract-topics`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rubric_text: rubricText }),
+  });
+  return asJson(res, "extractRubricTopics");
 }
 
 export async function createSession(

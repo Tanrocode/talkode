@@ -91,6 +91,7 @@ export function useInterviewSession() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [speaking, setSpeaking] = useState(false);
   const [interviewComplete, setInterviewComplete] = useState(false);
+  const [challengeReady, setChallengeReady] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
 
   const streamRef = useRef<MediaStream | null>(null);
@@ -185,6 +186,7 @@ export function useInterviewSession() {
           problem_title: args.problem_title,
           problem_statement: args.problem_statement,
           question_guidelines: args.question_guidelines,
+          rubric_topics: args.rubric_topics,
         });
         setSessionId(session_id);
 
@@ -364,6 +366,8 @@ export function useInterviewSession() {
             pushMessage("agent", payload.text);
           } else if (payload.type === "interview_complete") {
             setInterviewComplete(true);
+          } else if (payload.type === "coding_challenge_ready") {
+            setChallengeReady(true);
           } else if (payload.type === "error") {
             setError(payload.text);
           }
@@ -507,6 +511,7 @@ export function useInterviewSession() {
     sessionId,
     speaking,
     interviewComplete,
+    challengeReady,
     cameraStream,
     start,
     end,
