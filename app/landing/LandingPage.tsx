@@ -19,7 +19,7 @@ export default function LandingPage() {
     const onScroll = () => {
       const sc = scrollyRef.current
       if (!sc) return
-      if (window.innerWidth < 860) {
+      if (window.innerWidth < 1140) {
         setStep(2)
         setProgH('100%')
         setRevealIn(true)
@@ -37,7 +37,7 @@ export default function LandingPage() {
       if (s >= 2) setRevealIn(true)
     }
 
-    if (window.innerWidth < 860) {
+    if (window.innerWidth < 1140) {
       setStep(2); setProgH('100%'); setRevealIn(true)
     } else {
       window.addEventListener('scroll', onScroll, true)
@@ -232,30 +232,31 @@ export default function LandingPage() {
         .lp-footlinks a { color: #6b6b6b; text-decoration: none; font-size: 13px; }
         @keyframes lp-travel { 0%{left:6px;opacity:1} 86%{opacity:1} 100%{left:calc(100% - 6px);opacity:0} }
         @keyframes lp-blink { 0%,100%{opacity:1} 50%{opacity:.25} }
-        @media(max-width:960px){
+        .lp-mobilesteps { display: none; }
+        @media(max-width:1140px){
           .lp-twocol{grid-template-columns:1fr;gap:48px}
           .lp-steps{grid-template-columns:1fr 1fr}
-          .lp-idecols{grid-template-columns:1fr}
+          .lp-scrolly{height:auto}
+          .lp-scrollysticky{position:static;height:auto;display:block;padding:48px 0}
+          .lp-scrollyin{grid-template-columns:1fr;gap:36px}
+          .lp-srail{flex-direction:row;flex-wrap:wrap;gap:12px 28px;padding-left:0}
+          .lp-strack2,.lp-sprog{display:none}
+          .lp-srow{opacity:1;min-height:auto}
+          .lp-snumber{font-size:32px}
+          .lp-scrollystage{height:auto}
+          .lp-stageitem{position:static;opacity:1;transform:none;margin-bottom:28px;pointer-events:auto}
+          .lp-stageitem:nth-child(2){display:none}
+          .lp-idecols{grid-template-columns:1fr 2fr}
           .lp-idetree{display:none}
           .lp-dashcols{grid-template-columns:1fr}
           .lp-side{display:none}
           .lp-subcards{grid-template-columns:1fr}
-          .lp-scrolly{height:auto}
-          .lp-scrollysticky{position:static;height:auto;display:block;padding:40px 0}
-          .lp-scrollyin{grid-template-columns:1fr;gap:32px}
-          .lp-srail{flex-direction:row;flex-wrap:wrap;gap:18px 32px;padding-left:0}
-          .lp-strack2,.lp-sprog{display:none}
-          .lp-srow{opacity:1}
-          .lp-scrollystage{height:auto}
-          .lp-stageitem{position:static;opacity:1;transform:none;margin-bottom:28px;pointer-events:auto}
-          .lp-scorepanel{padding:28px 24px}
         }
         @media(max-width:640px){
           .lp-shell{padding:0 24px}
           .lp-steps{grid-template-columns:1fr}
-          .lp-lane{grid-template-columns:1fr;gap:6px}
-          .lp-connector{display:none}
           .lp-heroin{max-width:100%}
+          .lp-idecols{grid-template-columns:1fr}
         }
       `}</style>
 
