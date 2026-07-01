@@ -1,9 +1,20 @@
-import { Resend } from "resend";
-
-const _resend = new Resend(process.env.RESEND_API_KEY);
+import nodemailer from "nodemailer";
 
 const APP_URL =
   process.env.NEXT_PUBLIC_APP_URL ?? "https://talkode.netlify.app";
+
+function createTransport() {
+  if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+    throw new Error("GMAIL_USER and GMAIL_APP_PASSWORD must be set.");
+  }
+  return nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_APP_PASSWORD,
+    },
+  });
+}
 
 type InviteEmailParams = {
   to: string;
@@ -34,16 +45,13 @@ export async function sendInviteEmail({
   timeLimitMinutes,
   dueAt,
 }: InviteEmailParams) {
-  if (!process.env.RESEND_API_KEY) {
-    throw new Error("RESEND_API_KEY is not configured.");
-  }
-
+  const transport = createTransport();
   const url = inviteLink(inviteCode);
   const greeting = name ? `Hi ${name}` : "Hi there";
   const due = dueLine(dueAt, " ");
 
-  const { error } = await _resend.emails.send({
-    from: "Talkode <onboarding@resend.dev>",
+  await transport.sendMail({
+    from: `"Talkode" <${process.env.GMAIL_USER}>`,
     to,
     subject: `You've been invited: ${assessmentTitle}`,
     text: [
@@ -55,8 +63,6 @@ export async function sendInviteEmail({
       `codebase walkthrough with an AI interviewer.${due}`,
       ``,
       `Start here: ${url}`,
-      ``,
-      `(If this email landed in spam, please mark it as not spam so future emails reach you.)`,
       ``,
       `Good luck!`,
       `— The Talkode Team`,
@@ -71,11 +77,8 @@ export async function sendInviteEmail({
   </a>
 </p>
 <p style="margin-top:12px;color:#888;font-size:12px">Or paste this link: ${url}</p>
-<p style="margin-top:24px;color:#aaa;font-size:11px">If this email landed in spam, please mark it as not spam so future messages reach you.</p>
 `,
   });
-
-  if (error) throw new Error(error.message);
 }
 
 export async function sendReminderEmail({
@@ -86,16 +89,13 @@ export async function sendReminderEmail({
   timeLimitMinutes,
   dueAt,
 }: InviteEmailParams) {
-  if (!process.env.RESEND_API_KEY) {
-    throw new Error("RESEND_API_KEY is not configured.");
-  }
-
+  const transport = createTransport();
   const url = inviteLink(inviteCode);
   const greeting = name ? `Hi ${name}` : "Hi there";
   const due = dueLine(dueAt, " ");
 
-  const { error } = await _resend.emails.send({
-    from: "Talkode <onboarding@resend.dev>",
+  await transport.sendMail({
+    from: `"Talkode" <${process.env.GMAIL_USER}>`,
     to,
     subject: `Reminder: ${assessmentTitle} is waiting for you`,
     text: [
@@ -121,6 +121,4 @@ export async function sendReminderEmail({
 <p style="margin-top:12px;color:#888;font-size:12px">Or paste this link: ${url}</p>
 `,
   });
-
-  if (error) throw new Error(error.message);
 }
