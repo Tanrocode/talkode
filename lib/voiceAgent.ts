@@ -64,6 +64,33 @@ export async function extractRubricTopics(
   return asJson(res, "extractRubricTopics");
 }
 
+export type GeneratedCodebaseFile = {
+  path: string;
+  language: string;
+  content: string;
+};
+
+export async function generateCodebase(params: {
+  jdText: string;
+  hmSpec: string;
+  technologies: string[];
+}): Promise<{
+  files: GeneratedCodebaseFile[];
+  merged_spec: Record<string, unknown>;
+  seam_topics: string[];
+}> {
+  const res = await fetch(`${VOICE_API_BASE}/codebase/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jd_text: params.jdText,
+      hm_spec: params.hmSpec,
+      technologies: params.technologies,
+    }),
+  });
+  return asJson(res, "generateCodebase");
+}
+
 export async function createSession(
   body: CreateSessionBody,
 ): Promise<{ session_id: string }> {

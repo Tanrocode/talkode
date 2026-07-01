@@ -123,6 +123,56 @@ export default async function AssessmentDetailPage({
             <div className="mt-5 border-t border-[#f0eeea] pt-4">
               <EditAssessmentForm assessment={assessment} />
             </div>
+
+            {assessment.codebaseSource === "generated" && assessment.codbbaseSpec &&
+            typeof assessment.codbbaseSpec === "object" &&
+            !Array.isArray(assessment.codbbaseSpec) ? (
+              <div className="mt-5 border-t border-[#f0eeea] pt-4">
+                <p className="text-xs font-semibold text-[#62675e]">
+                  Generated codebase
+                </p>
+                {assessment.codbbaseSpec.app_name ? (
+                  <p className="mt-2 text-sm font-semibold text-[#202322]">
+                    {String(assessment.codbbaseSpec.app_name)}
+                  </p>
+                ) : null}
+                {assessment.codbbaseSpec.app_description ? (
+                  <p className="mt-1 text-sm leading-6 text-[#4f554d]">
+                    {String(assessment.codbbaseSpec.app_description)}
+                  </p>
+                ) : null}
+                {Array.isArray(assessment.codbbaseSpec.seams) &&
+                assessment.codbbaseSpec.seams.length > 0 ? (
+                  <div className="mt-3">
+                    <p className="text-xs font-semibold text-[#62675e]">
+                      Topics tested ({assessment.codbbaseSpec.seams.length})
+                    </p>
+                    <ul className="mt-2 flex flex-wrap gap-1.5">
+                      {(assessment.codbbaseSpec.seams as { rubric_topic?: unknown }[]).map(
+                        (seam, i) =>
+                          seam.rubric_topic ? (
+                            <li
+                              className="rounded-full border border-[#d7e8a6] bg-[#f3ffe0] px-2.5 py-0.5 text-xs font-semibold text-[#314200]"
+                              key={i}
+                            >
+                              {String(seam.rubric_topic)}
+                            </li>
+                          ) : null,
+                      )}
+                    </ul>
+                  </div>
+                ) : null}
+                {Array.isArray(assessment.codbbaseSpec.conflicts) &&
+                assessment.codbbaseSpec.conflicts.length > 0 ? (
+                  <p className="mt-3 rounded-[6px] border border-[#f0d9a6] bg-[#fffaf0] px-3 py-2 text-xs leading-5 text-[#6b4e16]">
+                    ⚠ Spec conflicts:{" "}
+                    {(assessment.codbbaseSpec.conflicts as unknown[])
+                      .map(String)
+                      .join("; ")}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </article>
         </section>
       ) : null}

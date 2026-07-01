@@ -13,15 +13,11 @@ try:
 except ImportError:  # SDK optional — fall back to a plain client
     with_compression = None
 
-_openai_client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
-_ttc_key = os.environ.get("TTC_API_KEY", "")
-
-# Auto-compress prompts via The Token Company when TTC_API_KEY is configured.
-client = (
-    with_compression(_openai_client, compression_api_key=_ttc_key)
-    if _ttc_key and with_compression
-    else _openai_client
-)
+# Never use TTC here — the TTC wrapper uses a sync HTTP transport that blocks
+# the asyncio event loop. During a live interview the event loop also runs the
+# Deepgram WebSocket; a blocked loop causes Deepgram to miss heartbeats, drop
+# its connection, and stop delivering transcript events after the first turn.
+client = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY", ""))
 
 # File logger — tail -f backend/agent_debug.log while testing
 _log_path = os.path.join(os.path.dirname(__file__), "..", "agent_debug.log")
@@ -522,6 +518,29 @@ async def _redirect_offtopic(meta: dict, last_agent: str | None) -> str:
 {last_line}
 
 Redirect them back to the problem in 1 sentence. If you had just asked a question, gently repeat or rephrase it."""
+
+    return await _call_openai(SHARED_SYSTEM, user)
+
+
+async def generate_resume_question(
+    meta: dict, code: str, history_text: str, stage: int, guidelines: str
+) -> str:
+    """Generate a codebase question to ask immediately after the coding challenge ends."""
+    user = f"""Interview rubric:
+{guidelines or "(no rubric provided)"}
+
+Candidate's current code:
+{code}
+
+Conversation so far (the last few turns may be about the coding challenge):
+{history_text}
+
+Current rubric stage: {stage}
+
+The coding challenge just ended and you briefly acknowledged it. Now pick back up where the codebase interview left off.
+Ask ONE specific question about the codebase that addresses the next unvisited rubric area (or probes further into the current stage if it was not fully covered).
+Do NOT reference the coding challenge. The question should read as a natural continuation, not a restart.
+Return only the question text, nothing else."""
 
     return await _call_openai(SHARED_SYSTEM, user)
 

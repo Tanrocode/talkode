@@ -4,7 +4,15 @@ import time
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from services.agent import client as llm_client, log_agent_turn, log_candidate_turn
+from services.agent import (
+    client as llm_client,
+    generate_resume_question,
+    get_conversation_history,
+    get_stage,
+    _format_history,
+    log_agent_turn,
+    log_candidate_turn,
+)
 from services.challenge_picker import pick_challenge_pool
 from services.redis_client import get_redis
 from services.tts import synthesize
@@ -231,8 +239,22 @@ async def submit_challenge(session_id: str, body: ChallengeSubmitBody):
         ),
     )
 
-    ack_text = "Nice, got your submission — let's get back to the codebase."
-    await log_agent_turn(session_id, r, ack_text)
-    audio_b64 = await synthesize(ack_text)
+    # Generate the next codebase question so the agent speaks immediately after
+    # acknowledging the submission instead of waiting for the candidate to prompt.
+    code_raw = await r.get(f"session:{session_id}:latest_code")
+    code = code_raw or "(no code written yet)"
+    stage = await get_stage(session_id, r)
+    history = await get_conversation_history(session_id, r)
+    history_text = _format_history(history)
+    guidelines = meta.get("question_guidelines", "")
+    try:
+        resume_q = await generate_resume_question(meta, code, history_text, stage, guidelines)
+    except Exception as e:
+        print(f"[challenge] resume question failed: {e}")
+        resume_q = "Let's pick up where we left off — walk me through a part of the codebase you haven't explained yet."
 
-    return {"ack_text": ack_text, "ack_audio_b64": audio_b64}
+    combined_text = f"Nice, got your submission. {resume_q}"
+    await log_agent_turn(session_id, r, combined_text)
+    audio_b64 = await synthesize(combined_text)
+
+    return {"ack_text": combined_text, "ack_audio_b64": audio_b64}

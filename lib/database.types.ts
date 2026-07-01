@@ -55,6 +55,9 @@ export type Database = {
           due_at: string | null;
           completion_percent: number;
           median_score: number | null;
+          hm_spec: string | null;
+          codebase_source: string;
+          codebase_spec: Json | null;
           created_by: string | null;
           created_at: string;
           updated_at: string;
@@ -78,6 +81,9 @@ export type Database = {
           due_at?: string | null;
           completion_percent?: number;
           median_score?: number | null;
+          hm_spec?: string | null;
+          codebase_source?: string;
+          codebase_spec?: Json | null;
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -101,6 +107,9 @@ export type Database = {
           due_at?: string | null;
           completion_percent?: number;
           median_score?: number | null;
+          hm_spec?: string | null;
+          codebase_source?: string;
+          codebase_spec?: Json | null;
           created_by?: string | null;
           created_at?: string;
           updated_at?: string;

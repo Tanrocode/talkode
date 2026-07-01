@@ -152,6 +152,18 @@ export function CreateAssessmentForm({ templates }: CreateAssessmentFormProps) {
         </fieldset>
 
         <label className="grid gap-1.5 text-sm font-medium text-[#202322]">
+          <span className="flex items-center gap-1.5">
+            Codebase specification
+            <span className="text-xs font-normal text-[#9aa093]">optional</span>
+          </span>
+          <textarea
+            className="min-h-[100px] rounded-[3px] border border-[#dedbd5] bg-white px-3 py-2 text-[13px] leading-6 outline-none focus:border-[#202322] focus:ring-2 focus:ring-[#d7ff5a]"
+            name="codbbaseSpec"
+            placeholder="Describe the domain, topics to test, and depth. E.g. 'logistics platform with a caching layer and async job queue — test API design, cache invalidation, and N+1 queries. Include a background worker and DB access layer.' More detail = more tailored codebase."
+          />
+        </label>
+
+        <label className="grid gap-1.5 text-sm font-medium text-[#202322]">
           Job description
           <textarea
             className="min-h-[150px] rounded-[3px] border border-[#dedbd5] bg-white px-3 py-2 text-[13px] leading-6 outline-none focus:border-[#202322] focus:ring-2 focus:ring-[#d7ff5a]"
