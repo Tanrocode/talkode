@@ -156,7 +156,7 @@ answer       — candidate is responding to the interviewer's last question
 claim        — candidate made a technical assertion about their code or approach
 stuck        — candidate expressed confusion, being lost, or asked for a hint
 decision     — candidate announced a direction or choice ("I'll use X", "I'm going to try Y")
-end_request  — candidate explicitly wants to end, quit, or stop the interview ("end the interview", "I'm done", "I quit", "just end it")
+end_request  — candidate explicitly wants to END THE ENTIRE INTERVIEW SESSION — not finish a task, section, or question. They must name the interview/session itself as the thing to end.
 filler       — utterance is pure filler with no semantic content ("um", "uh", "like", "yeah so")
 unclear      — utterance is incoherent, too fragmented to classify, or semantically empty
 off_topic    — clearly unrelated to the interview (personal remarks, ambient noise, non-technical chatter)
@@ -164,7 +164,7 @@ off_topic    — clearly unrelated to the interview (personal remarks, ambient n
 Instructions:
 - First mentally strip filler words ("um", "like", "you know", "so yeah") and identify the semantic core.
 - If the semantic core is empty after stripping, return: filler
-- end_request takes priority — if the candidate is asking to stop or end the interview, return end_request even if they seem frustrated or off-topic.
+- For end_request: ONLY classify as end_request if the candidate explicitly wants to stop the whole interview/session. Saying "I'm done with the coding question / this part / this section" is NOT end_request — that is an answer or decision. The word "done" alone is NOT enough.
 - Use the interviewer's last turn to determine if the candidate is answering a question.
 - Return ONLY the single intent word. No explanation, no punctuation.
 
@@ -177,9 +177,12 @@ Candidate: "I'll go with a hash map" → decision
 Candidate: "yeah so like the recursion handles the base case" [after interviewer asked about base case] → answer
 Candidate: "my phone just buzzed sorry" → off_topic
 Candidate: "uh I mean the thing with the... yeah" → unclear
+Candidate: "I think I'm done with the coding question" → answer
+Candidate: "I'm done with this part, let's move on" → decision
+Candidate: "that's all I've got for this section" → answer
 Candidate: "I'm done, just end the interview" → end_request
-Candidate: "can we end this? I don't know what else to do" → end_request
-Candidate: "I quit, I'm done with this" → end_request"""
+Candidate: "can we stop the interview? I've given it my best" → end_request
+Candidate: "I want to end the session now" → end_request"""
 
     user = f"""{last_agent_line}
 
@@ -205,6 +208,10 @@ Intent:"""
 # Main entry point
 # ---------------------------------------------------------------------------
 
+_AFFIRMATIVES = {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "correct",
+                 "please", "go ahead", "do it", "end it", "yes please", "yes end"}
+
+
 async def maybe_respond(session_id: str, r: redis.Redis) -> tuple[str | None, bool]:
     """Returns (response_text, challenge_ready). challenge_ready is True at
     most once per session — the moment right after a topic closes via an
@@ -219,6 +226,19 @@ async def maybe_respond(session_id: str, r: redis.Redis) -> tuple[str | None, bo
 
     history = await get_conversation_history(session_id, r)
     last_agent = _last_agent_turn(history)
+
+    # If we're waiting on confirmation to end the interview, check whether the
+    # candidate just gave an affirmative before running the full classifier.
+    if await r.get(f"session:{session_id}:end_confirmed"):
+        normalized = utterance.lower().strip().rstrip(".!,")
+        if normalized in _AFFIRMATIVES:
+            response = "Got it — thanks for your time today. We'll wrap up here."
+            await r.set(f"session:{session_id}:interview_complete", "1")
+            await r.delete(f"session:{session_id}:end_confirmed")
+            await log_candidate_turn(session_id, r, utterance, "end_request")
+            await log_agent_turn(session_id, r, response)
+            log.info("[interview] end confirmed via affirmative — marked complete")
+            return response, False
 
     intent = await classify_intent(utterance, last_agent, history)
     log.info(f"[classifier] {utterance!r} → {intent}")
@@ -288,9 +308,18 @@ async def maybe_respond(session_id: str, r: redis.Redis) -> tuple[str | None, bo
     elif intent == "decision":
         response = await _affirm_decision(meta, code, utterance, history_text, stage, guidelines)
     elif intent == "end_request":
-        response = "Got it — thanks for your time today. We'll wrap up here."
-        await r.set(f"session:{session_id}:interview_complete", "1")
-        log.info("[interview] candidate requested end — marked complete")
+        # Only end immediately if the candidate already confirmed once.
+        # On the first request, ask for confirmation so a stray "I'm done"
+        # mid-task doesn't accidentally kill the session.
+        already_confirmed = await r.get(f"session:{session_id}:end_confirmed")
+        if already_confirmed:
+            response = "Got it — thanks for your time today. We'll wrap up here."
+            await r.set(f"session:{session_id}:interview_complete", "1")
+            log.info("[interview] candidate confirmed end — marked complete")
+        else:
+            await r.set(f"session:{session_id}:end_confirmed", "1", ex=60)
+            response = "Just to confirm — you want to end the whole interview, not just this section?"
+            log.info("[interview] end_request — asking for confirmation")
     elif intent == "off_topic":
         response = await _redirect_offtopic(meta, last_agent)
     else:
