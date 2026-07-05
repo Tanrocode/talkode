@@ -93,6 +93,7 @@ export function useInterviewSession() {
   const [interviewComplete, setInterviewComplete] = useState(false);
   const [challengeReady, setChallengeReady] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [muted, setMuted] = useState(false);
 
   const streamRef = useRef<MediaStream | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -504,6 +505,13 @@ export function useInterviewSession() {
     };
   }, [teardownAudio]);
 
+  const toggleMute = useCallback(() => {
+    const tracks = streamRef.current?.getAudioTracks() ?? [];
+    const next = !muted;
+    tracks.forEach((t) => { t.enabled = !next; });
+    setMuted(next);
+  }, [muted]);
+
   return {
     status,
     messages,
@@ -514,6 +522,8 @@ export function useInterviewSession() {
     interviewComplete,
     challengeReady,
     cameraStream,
+    muted,
+    toggleMute,
     start,
     end,
     announceAgentText,

@@ -114,7 +114,12 @@ async def interview_ws(websocket: WebSocket, session_id: str):
 
             try:
                 response, challenge_ready = await maybe_respond(session_id, r)
-                if response:
+
+                # When the challenge fires, skip the agent's verbal response —
+                # the challenge intro from startCodingChallenge is the transition.
+                # Sending both causes the candidate to hear a codebase question
+                # AND the challenge intro back-to-back, which is confusing.
+                if response and not challenge_ready:
                     from services.tts import synthesize
                     audio_b64 = await synthesize(response)
 
@@ -125,11 +130,11 @@ async def interview_ws(websocket: WebSocket, session_id: str):
                         })
                     await websocket.send_json({"type": "agent_response", "text": response})
 
-                    if challenge_ready:
-                        await websocket.send_json({"type": "coding_challenge_ready"})
+                if challenge_ready:
+                    await websocket.send_json({"type": "coding_challenge_ready"})
 
-                    if await r.get(f"session:{session_id}:interview_complete"):
-                        await websocket.send_json({"type": "interview_complete"})
+                if await r.get(f"session:{session_id}:interview_complete"):
+                    await websocket.send_json({"type": "interview_complete"})
             except Exception as e:
                 print(f"[agent] error: {e}")
 

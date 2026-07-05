@@ -16,7 +16,9 @@ import {
   LogOut,
   MessageSquare,
   Mic,
+  MicOff,
   Moon,
+  Play,
   Plus,
   StickyNote,
   Sun,
@@ -32,7 +34,9 @@ import { CodeEditor, type LineRange } from "@/app/assessment/CodeEditor";
 import {
   startCodingChallenge,
   submitCodingChallenge,
+  runCodingChallenge,
   type CodingChallenge,
+  type ChallengeRunResult,
 } from "@/lib/voiceAgent";
 
 
@@ -276,10 +280,7 @@ function SelfCameraPreview({
 
   return (
     <div
-      className={cx(
-        "absolute bottom-4 z-40 h-28 w-40 overflow-hidden rounded-xl border-2 border-[var(--tk-border)] bg-[var(--tk-bg-elevated)] shadow-lg transition-[right]",
-        panelOpen ? "right-[25rem]" : "right-4",
-      )}
+      className="absolute bottom-4 left-4 z-40 h-28 w-40 overflow-hidden rounded-xl border-2 border-[var(--tk-border)] bg-[var(--tk-bg-elevated)] shadow-lg"
     >
       {stream ? (
         <video
@@ -327,6 +328,123 @@ const CHALLENGE_LANGUAGE_LABELS: Record<string, string> = {
   ruby: "Ruby",
 };
 
+function TestResultsPanel({
+  results,
+  hiddenTotal,
+  hiddenPassed,
+}: {
+  results: ChallengeRunResult[];
+  hiddenTotal: number;
+  hiddenPassed: number;
+}) {
+  const [tab, setTab] = useState(0);
+  useEffect(() => {
+    const firstFail = results.findIndex((r) => !r.passed);
+    setTab(firstFail >= 0 ? firstFail : 0);
+  }, [results]);
+
+  const examplesPassed = results.filter((r) => r.passed).length;
+  const selected = results[tab] ?? null;
+
+  const inputLabel = (desc: string) => {
+    const colonIdx = desc.indexOf(":");
+    return colonIdx >= 0 ? desc.slice(colonIdx + 1).trim() : desc;
+  };
+
+  return (
+    // Fixed 220px height so the detail section always has room to render
+    <div className="shrink-0 border-t border-[var(--tk-border)] bg-[var(--tk-bg-elevated)]" style={{ height: 220 }}>
+      <div className="flex h-full flex-col">
+        {/* Tab row */}
+        <div className="flex shrink-0 items-center gap-0 overflow-x-auto border-b border-[var(--tk-border)]">
+          {/* Pass summary */}
+          <div className="flex shrink-0 items-center gap-1.5 border-r border-[var(--tk-border)] px-3 py-1.5">
+            <span className={cx(
+              "tk-mono text-[11px] font-bold",
+              examplesPassed === results.length ? "text-emerald-400" : "text-rose-400",
+            )}>
+              {examplesPassed}/{results.length}
+            </span>
+            <span className="text-[10px] text-[var(--tk-text-dim)]">examples</span>
+            {hiddenTotal > 0 && (
+              <>
+                <span className="text-[var(--tk-text-dim)]">·</span>
+                <span className={cx(
+                  "tk-mono text-[11px] font-bold",
+                  hiddenPassed === hiddenTotal ? "text-emerald-400" : "text-amber-400",
+                )}>
+                  {hiddenPassed}/{hiddenTotal}
+                </span>
+                <span className="text-[10px] text-[var(--tk-text-dim)]">hidden</span>
+              </>
+            )}
+          </div>
+          {/* Case tabs */}
+          <div className="flex items-center gap-0.5 px-2">
+            {results.map((r, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setTab(i)}
+                className={cx(
+                  "flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  tab === i
+                    ? "bg-[var(--tk-bg-hover)] text-[var(--tk-text)]"
+                    : "text-[var(--tk-text-dim)] hover:text-[var(--tk-text-muted)]",
+                )}
+              >
+                <span className={cx("text-[8px]", r.passed ? "text-emerald-400" : "text-rose-400")}>●</span>
+                {`Case ${i + 1}`}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Detail pane — takes remaining height */}
+        {selected && (
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+            <div className="space-y-2 text-xs">
+              <div>
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--tk-text-dim)]">Input</div>
+                <pre className="tk-mono whitespace-pre-wrap break-all rounded bg-[var(--tk-bg)] px-2.5 py-1.5 text-[var(--tk-text-muted)]">
+                  {inputLabel(selected.desc) || "—"}
+                </pre>
+              </div>
+
+              {selected.error ? (
+                <div>
+                  <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-rose-400">Error</div>
+                  <pre className="tk-mono whitespace-pre-wrap break-all rounded bg-[var(--tk-bg)] px-2.5 py-1.5 text-rose-400">
+                    {selected.error}
+                  </pre>
+                </div>
+              ) : (
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--tk-text-dim)]">Output</div>
+                    <pre className={cx(
+                      "tk-mono whitespace-pre-wrap break-all rounded bg-[var(--tk-bg)] px-2.5 py-1.5",
+                      selected.passed ? "text-emerald-400" : "text-rose-400",
+                    )}>
+                      {JSON.stringify(selected.actual) ?? "null"}
+                    </pre>
+                  </div>
+                  <div className="flex-1">
+                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--tk-text-dim)]">Expected</div>
+                    <pre className="tk-mono whitespace-pre-wrap break-all rounded bg-[var(--tk-bg)] px-2.5 py-1.5 text-[var(--tk-text-muted)]">
+                      {JSON.stringify(selected.expected) ?? "null"}
+                    </pre>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CodingChallengePanel({
   open,
   problem,
@@ -336,6 +454,12 @@ function CodingChallengePanel({
   onLanguageChange,
   onSubmit,
   submitting,
+  onRun,
+  running,
+  runResults,
+  runStatus,
+  hiddenTotal,
+  hiddenPassed,
 }: {
   open: boolean;
   problem: CodingChallenge | null;
@@ -345,6 +469,12 @@ function CodingChallengePanel({
   onLanguageChange: (language: string) => void;
   onSubmit: () => void;
   submitting: boolean;
+  onRun: () => void;
+  running: boolean;
+  runResults: ChallengeRunResult[] | null;
+  runStatus: "ok" | "not_ready" | "error" | null;
+  hiddenTotal: number;
+  hiddenPassed: number;
 }) {
   const availableLanguages = problem ? Object.keys(problem.starter_code) : [];
 
@@ -381,6 +511,19 @@ function CodingChallengePanel({
               ))}
             </select>
           ) : null}
+          <button
+            type="button"
+            onClick={onRun}
+            disabled={running || submitting || !problem}
+            className="flex items-center gap-1.5 rounded-md border border-[var(--tk-border)] bg-[var(--tk-bg-elevated)] px-3 py-1 text-xs font-semibold text-[var(--tk-text)] transition-colors hover:bg-[var(--tk-bg-elevated2)] disabled:opacity-50"
+          >
+            {running ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Play className="h-3 w-3" />
+            )}
+            {running ? "Running…" : "Run"}
+          </button>
           <button
             type="button"
             onClick={onSubmit}
@@ -427,14 +570,29 @@ function CodingChallengePanel({
             </p>
           )}
         </div>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <CodeEditor
-            value={code}
-            onChange={onCodeChange}
-            filePath="challenge"
-            language={language}
-            autoFocus={open}
-          />
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col">
+            <CodeEditor
+              value={code}
+              onChange={onCodeChange}
+              filePath="challenge"
+              language={language}
+              autoFocus={open}
+            />
+          </div>
+          {/* Test results strip */}
+          {runStatus === "not_ready" && (
+            <div className="shrink-0 border-t border-[var(--tk-border)] bg-[var(--tk-bg-elevated)] px-4 py-2 text-xs text-[var(--tk-text-dim)]">
+              Tests are still being prepared — try again in a moment.
+            </div>
+          )}
+          {runStatus === "ok" && runResults && runResults.length > 0 && (
+            <TestResultsPanel
+              results={runResults}
+              hiddenTotal={hiddenTotal}
+              hiddenPassed={hiddenPassed}
+            />
+          )}
         </div>
       </div>
     </div>
@@ -479,6 +637,11 @@ export function InterviewWorkspace({
   const [challengeCode, setChallengeCode] = useState("");
   const [challengeLanguage, setChallengeLanguage] = useState("python");
   const [challengeSubmitting, setChallengeSubmitting] = useState(false);
+  const [challengeRunning, setChallengeRunning] = useState(false);
+  const [challengeRunResults, setChallengeRunResults] = useState<ChallengeRunResult[] | null>(null);
+  const [challengeRunStatus, setChallengeRunStatus] = useState<"ok" | "not_ready" | "error" | null>(null);
+  const [challengeHiddenTotal, setChallengeHiddenTotal] = useState(0);
+  const [challengeHiddenPassed, setChallengeHiddenPassed] = useState(0);
   const challengeTriggeredRef = useRef(false);
 
   useEffect(() => {
@@ -499,6 +662,8 @@ export function InterviewWorkspace({
     interviewComplete,
     challengeReady,
     cameraStream,
+    muted,
+    toggleMute,
     start,
     end,
     announceAgentText,
@@ -538,9 +703,29 @@ export function InterviewWorkspace({
     (lang: string) => {
       setChallengeLanguage(lang);
       setChallengeCode(challengeProblem?.starter_code[lang] ?? "");
+      setChallengeRunResults(null);
+      setChallengeRunStatus(null);
     },
     [challengeProblem],
   );
+
+  const handleChallengeRun = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    setChallengeRunning(true);
+    try {
+      const data = await runCodingChallenge(sid, challengeCode, challengeLanguage);
+      setChallengeRunStatus(data.status);
+      setChallengeRunResults(data.results ?? null);
+      setChallengeHiddenTotal(data.hidden_total ?? 0);
+      setChallengeHiddenPassed(data.hidden_passed ?? 0);
+    } catch (caught) {
+      console.warn("Failed to run coding challenge", caught);
+      setChallengeRunStatus("error");
+    } finally {
+      setChallengeRunning(false);
+    }
+  }, [challengeCode, challengeLanguage]);
 
   // The backend decides when a topic has closed and the candidate has shown
   // enough understanding (see should_trigger_challenge in agent.py), then
@@ -800,6 +985,21 @@ export function InterviewWorkspace({
         <div className="flex items-center space-x-2.5">
           <button
             type="button"
+            onClick={toggleMute}
+            disabled={status !== "live"}
+            aria-label={muted ? "Unmute microphone" : "Mute microphone"}
+            className={cx(
+              "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-semibold transition-colors disabled:opacity-40",
+              muted
+                ? "border-[var(--tk-danger-border)] bg-[var(--tk-danger-border)]/10 text-[var(--tk-danger)]"
+                : "border-[var(--tk-border)] bg-[var(--tk-bg-elevated)] text-[var(--tk-text-muted)] hover:text-[var(--tk-text)]",
+            )}
+          >
+            {muted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+            {muted ? "Muted" : "Mute"}
+          </button>
+          <button
+            type="button"
             onClick={toggleTheme}
             aria-label="Toggle theme"
             className="flex items-center justify-center rounded-md border border-[var(--tk-border)] bg-[var(--tk-bg-elevated)] p-1.5 text-[var(--tk-text-muted)] transition-colors hover:text-[var(--tk-text)]"
@@ -950,6 +1150,12 @@ export function InterviewWorkspace({
             onLanguageChange={handleChallengeLanguageChange}
             onSubmit={handleChallengeSubmit}
             submitting={challengeSubmitting}
+            onRun={handleChallengeRun}
+            running={challengeRunning}
+            runResults={challengeRunResults}
+            runStatus={challengeRunStatus}
+            hiddenTotal={challengeHiddenTotal}
+            hiddenPassed={challengeHiddenPassed}
           />
         </section>
 

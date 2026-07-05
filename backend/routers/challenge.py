@@ -1,7 +1,8 @@
+import asyncio
 import json
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 from services.agent import (
@@ -15,6 +16,11 @@ from services.agent import (
 )
 from services.challenge_picker import pick_challenge_pool
 from services.redis_client import get_redis
+from services.test_generator import (
+    SUPPORTED_LANGUAGES,
+    get_or_generate_harness,
+)
+from services.test_runner import run_tests
 from services.tts import synthesize
 
 router = APIRouter(prefix="/session", tags=["challenge"])
@@ -68,15 +74,21 @@ Evaluate two things:
    codebase streams data and this is about sliding windows/queues; etc.)? It doesn't need to be a perfect match —
    just a genuine, explainable connection a candidate would find sensible, not a forced stretch.
 
-2. COMPLETENESS: this dataset is scraped from web pages, so the most common defect is a sentence ending in a
-   colon that promises something ("the following interface:", "for example, for the string t = \"aab\":") and
-   then the text just moves on without ever giving what was promised. If you spot that pattern, or any other
-   missing/contradictory content, decide:
+2. COMPLETENESS: this dataset is scraped from web pages. Common defects:
+   a) A sentence ending in a colon that promises something ("the following interface:", "for example:") and then
+      the text just moves on without delivering it.
+   b) The description field contains ONLY example data ("Example 1: Input: ... Output: ...") with no actual
+      problem statement explaining what the candidate is supposed to implement. If a candidate read only the
+      description they would not know what to do — this is broken.
+   c) The description is missing critical information (input format, output format, what to return) such that
+      the problem cannot be solved from the description alone.
+
+   Decide:
    - "fixable": the gap is small and mechanical (e.g. you can tell exactly what list/example should follow from
      the starter code or examples) — in this case, write a corrected description that fills ONLY that gap. Do
      not rewrite, rephrase, or improve anything else about the description.
-   - "broken": the gap is more than a small mechanical fix, or the question is confusing/ambiguous/missing
-     information needed to solve it — do not attempt a fix.
+   - "broken": the gap is more than a small mechanical fix, the description is essentially just examples with no
+     problem statement, or the question is confusing/ambiguous/missing information needed to solve it.
 
 Return a JSON object with exactly these fields:
 {{
@@ -98,16 +110,85 @@ Return a JSON object with exactly these fields:
         return result
     except Exception as e:
         print(f"[challenge] evaluation failed, treating as usable: {e}")
-        # Don't let a flaky LLM call block the interview — fail open.
         return {"relevant": True, "status": "complete", "fixed_description": "", "reason": "evaluation skipped (error)"}
 
 
-async def _grade_submission(problem: dict, code: str, language: str) -> dict:
-    """LLM-graded review of the candidate's coding-challenge submission —
-    there's no sandboxed test runner here, so this is a reasoning-based grade
-    (0-4 scale matching the rubric scoring elsewhere) rather than executed
-    test cases. Feeds into the final candidate report.
+async def _grade_submission(
+    problem: dict,
+    code: str,
+    language: str,
+    run_results: list[dict] | None = None,
+) -> dict:
+    """Grade the candidate's submission.
+
+    If run_results are available (from the /run endpoint), the score is a
+    weighted combination of test pass rate (weight 3.0) and LLM code quality
+    (weight 1.0), capped at 4.0.
+
+    If no run results exist, falls back to pure LLM scoring (0-4).
     """
+    has_tests = bool(run_results)
+
+    if has_tests:
+        total = len(run_results)
+        passed = sum(1 for r in run_results if r.get("passed"))
+        test_pass_rate = passed / total if total > 0 else 0.0
+
+        quality_prompt = f"""You are reviewing a candidate's coding solution for code quality only.
+Tests have already been run externally: {passed}/{total} passed.
+
+Problem: {problem.get("title")} ({problem.get("difficulty")})
+Description:
+{problem.get("description", "")}
+
+Candidate's code ({language}):
+{code or "(no code submitted)"}
+
+Rate the CODE QUALITY on a 0.0-1.0 scale (not correctness, which is handled by tests):
+- 1.0: clean, well-structured, optimal time/space complexity, clear variable names
+- 0.75: good approach, minor style issues or slightly suboptimal
+- 0.5: workable but messy, poor variable names, or unnecessary complexity
+- 0.25: hard to read, poor structure, or notably wrong complexity even if tests pass
+- 0.0: blank, trivially wrong approach, or clearly copied boilerplate with no real solution
+
+Return JSON with exactly:
+{{
+  "quality": <float 0.0-1.0>,
+  "correct": <bool — true if test pass rate >= 0.6>,
+  "time_complexity": "e.g. O(n)",
+  "feedback": "2-3 sentences citing specifics from the code"
+}}"""
+
+        try:
+            resp = await llm_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": quality_prompt}],
+                response_format={"type": "json_object"},
+                temperature=0.2,
+            )
+            quality_data = json.loads(resp.choices[0].message.content)
+            llm_quality = float(quality_data.get("quality", 0.5))
+        except Exception as e:
+            print(f"[challenge] quality grading failed: {e}")
+            llm_quality = 0.5
+            quality_data = {
+                "correct": test_pass_rate >= 0.6,
+                "time_complexity": "unknown",
+                "feedback": "Quality grading failed.",
+            }
+
+        final_score = min(4.0, round(test_pass_rate * 3.0 + llm_quality * 1.0, 1))
+        return {
+            "score": final_score,
+            "correct": quality_data.get("correct", test_pass_rate >= 0.6),
+            "time_complexity": quality_data.get("time_complexity", "unknown"),
+            "feedback": quality_data.get("feedback", ""),
+            "test_pass_rate": test_pass_rate,
+            "tests_passed": passed,
+            "tests_total": total,
+        }
+
+    # Fallback: pure LLM scoring (no test results)
     prompt = f"""You are grading a candidate's solution to a coding problem, submitted mid-interview.
 
 Problem: {problem.get("title")}
@@ -154,8 +235,23 @@ Return a JSON object with exactly these fields:
         }
 
 
+async def _prime_harnesses(frontend_id: str, problem: dict, r) -> None:
+    """Pre-generate harnesses for all supported languages in parallel.
+
+    Called as a BackgroundTask when a challenge is served. Results are cached
+    in Redis so the first /run call per language is instant.
+    """
+    tasks = [
+        get_or_generate_harness(frontend_id, problem, lang, r)
+        for lang in SUPPORTED_LANGUAGES
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    ok = sum(1 for r in results if r and not isinstance(r, Exception))
+    print(f"[challenge] primed {ok}/{len(SUPPORTED_LANGUAGES)} harnesses for {frontend_id}")
+
+
 @router.post("/{session_id}/challenge")
-async def start_challenge(session_id: str):
+async def start_challenge(session_id: str, background_tasks: BackgroundTasks):
     r = get_redis()
     raw = await r.get(f"session:{session_id}:meta")
     if not raw:
@@ -178,12 +274,14 @@ async def start_challenge(session_id: str):
         problem = candidate
         break
     if problem is None:
-        # Nothing passed — show the best-ranked one anyway rather than
-        # blocking the interview entirely.
         print(f"[challenge] no candidate passed evaluation for session {session_id}, falling back")
         problem = pool[0]
 
     await r.set(f"session:{session_id}:challenge", json.dumps(problem))
+
+    # Pre-generate test harnesses in the background while the candidate reads the problem
+    frontend_id = problem.get("frontend_id", problem.get("title", session_id))
+    background_tasks.add_task(_prime_harnesses, frontend_id, problem, r)
 
     intro_text = (
         f"Let's pause for a quick coding detour. {problem['intro']} "
@@ -192,11 +290,49 @@ async def start_challenge(session_id: str):
     await log_agent_turn(session_id, r, intro_text)
     audio_b64 = await synthesize(intro_text)
 
-    # Never send the reference solution to the candidate — it's only for the
-    # recruiter report, surfaced via the dashboard challenge-review endpoint.
     candidate_problem = {k: v for k, v in problem.items() if k != "solution"}
 
     return {"problem": candidate_problem, "intro_text": intro_text, "intro_audio_b64": audio_b64}
+
+
+class ChallengeRunBody(BaseModel):
+    code: str
+    language: str = "python3"
+
+
+@router.post("/{session_id}/challenge/run")
+async def run_challenge(session_id: str, body: ChallengeRunBody):
+    r = get_redis()
+    challenge_raw = await r.get(f"session:{session_id}:challenge")
+    if not challenge_raw:
+        raise HTTPException(status_code=404, detail="No challenge active for this session")
+
+    problem = json.loads(challenge_raw)
+    frontend_id = problem.get("frontend_id", problem.get("title", session_id))
+
+    harness = await get_or_generate_harness(frontend_id, problem, body.language, r)
+    if harness is None:
+        return {"status": "not_ready", "results": []}
+
+    results = await run_tests(body.code, body.language, harness)
+
+    # Store full results (visible + hidden) for grading at submit time
+    await r.set(
+        f"session:{session_id}:challenge_run_results",
+        json.dumps({"language": body.language, "results": results}),
+    )
+
+    # Return only visible test results to the candidate
+    visible = [r for r in results if r.get("visible", True)]
+    hidden = [r for r in results if not r.get("visible", True)]
+    hidden_passed = sum(1 for r in hidden if r.get("passed"))
+
+    return {
+        "status": "ok",
+        "results": visible,
+        "hidden_total": len(hidden),
+        "hidden_passed": hidden_passed,
+    }
 
 
 class ChallengeSubmitBody(BaseModel):
@@ -210,6 +346,7 @@ async def submit_challenge(session_id: str, body: ChallengeSubmitBody):
     raw = await r.get(f"session:{session_id}:meta")
     if not raw:
         raise HTTPException(status_code=404, detail="Session not found")
+    meta = json.loads(raw)
 
     challenge_raw = await r.get(f"session:{session_id}:challenge")
     challenge = json.loads(challenge_raw) if challenge_raw else {}
@@ -221,7 +358,15 @@ async def submit_challenge(session_id: str, body: ChallengeSubmitBody):
         session_id, r, f"[Submitted coding challenge: {title}]", "challenge_submit"
     )
 
-    grade = await _grade_submission(challenge, body.code, body.language)
+    # Use the most recent /run results if the language matches; otherwise grade without tests
+    run_results: list[dict] | None = None
+    run_raw = await r.get(f"session:{session_id}:challenge_run_results")
+    if run_raw:
+        run_data = json.loads(run_raw)
+        if run_data.get("language") == body.language:
+            run_results = run_data.get("results")
+
+    grade = await _grade_submission(challenge, body.code, body.language, run_results)
     grade["title"] = title
     await r.set(f"session:{session_id}:challenge_grade", json.dumps(grade))
 
@@ -239,8 +384,6 @@ async def submit_challenge(session_id: str, body: ChallengeSubmitBody):
         ),
     )
 
-    # Generate the next codebase question so the agent speaks immediately after
-    # acknowledging the submission instead of waiting for the candidate to prompt.
     code_raw = await r.get(f"session:{session_id}:latest_code")
     code = code_raw or "(no code written yet)"
     stage = await get_stage(session_id, r)

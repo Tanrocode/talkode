@@ -250,6 +250,36 @@ export async function getChallengeReview(
   return asJson(res, "getChallengeReview");
 }
 
+export type ChallengeRunResult = {
+  desc: string;
+  visible: boolean;
+  passed: boolean;
+  actual: unknown;
+  expected: unknown;
+  error?: string;
+};
+
+export async function runCodingChallenge(
+  sessionId: string,
+  code: string,
+  language: string,
+): Promise<{
+  status: "ok" | "not_ready" | "error";
+  results?: ChallengeRunResult[];
+  hidden_total?: number;
+  hidden_passed?: number;
+}> {
+  const res = await fetch(
+    `${VOICE_API_BASE}/session/${sessionId}/challenge/run`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, language }),
+    },
+  );
+  return asJson(res, "runCodingChallenge");
+}
+
 export async function listSessions(): Promise<{ sessions: BackendSession[] }> {
   const res = await fetch(`${VOICE_API_BASE}/dashboard/sessions`, {
     cache: "no-store",

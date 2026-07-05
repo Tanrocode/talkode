@@ -328,7 +328,7 @@ async def maybe_respond(session_id: str, r: redis.Redis) -> tuple[str | None, bo
     log.info(f"[agent] response: {response!r}")
 
     if not response or "NONE" in response.upper():
-        return None, False
+        return None, challenge_ready
 
     await log_agent_turn(session_id, r, response)
 
