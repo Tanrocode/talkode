@@ -63,7 +63,7 @@ async def log_candidate_turn(session_id: str, r: redis.Redis, text: str, intent:
     await r.rpush(f"session:{session_id}:conversation_history", json.dumps(entry))
 
 
-async def get_conversation_history(session_id: str, r: redis.Redis, n: int = 8) -> list[dict]:
+async def get_conversation_history(session_id: str, r: redis.Redis, n: int = 16) -> list[dict]:
     raw = await r.lrange(f"session:{session_id}:conversation_history", -n, -1)
     return [json.loads(item) for item in raw]
 
@@ -299,7 +299,7 @@ async def maybe_respond(session_id: str, r: redis.Redis) -> tuple[str | None, bo
     elif intent == "claim":
         attempts = await increment_stage_attempts(session_id, r)
         response = await _validate_claim(meta, code, utterance, history_text, stage, guidelines, attempts)
-        if attempts >= 2 and response and "NONE" not in response.upper():
+        if attempts >= 3 and response and "NONE" not in response.upper():
             await advance_stage(session_id, r)
     elif intent == "question":
         response = await _answer_candidate_question(meta, code, utterance, history_text, stage, guidelines)
@@ -355,7 +355,11 @@ async def _validate_and_followup(
     history: str, stage: int, guidelines: str, attempts: int = 1,
     about_to_pause: bool = False,
 ) -> dict:
-    force_advance = attempts >= 2
+    force_advance = attempts >= 3
+    stages_done = (
+        f"Rubric stages 0 through {stage - 1} have already been fully covered — do NOT revisit them. "
+        f"You are currently on stage {stage}."
+    ) if stage > 0 else f"You are on stage 0 — the first rubric topic."
 
     if about_to_pause:
         instruction = """The conversation is about to pause for a short coding detour right after this turn.
@@ -368,6 +372,12 @@ async def _validate_and_followup(
             f"IMPORTANT: This area has been probed {attempts} times. Move on now — affirm what they got and "
             "ask the next rubric question regardless of how complete the answer was."
         )
+    elif attempts == 2:
+        instruction = (
+            "The candidate's first answer touched on part of this area but likely missed something important. "
+            "Give them ONE specific nudge — point at the gap or hint at what to look for, WITHOUT giving the answer directly. "
+            "Do NOT ask a new rubric question yet; stay on the current topic to give them a chance to fill the gap."
+        )
     else:
         instruction = """Bias toward accepting and moving on. Only push back if the answer is clearly wrong or reveals a dangerous misconception.
 - Reasonable or partially correct → affirm and move to the next rubric question immediately.
@@ -379,6 +389,11 @@ async def _validate_and_followup(
 - "Close enough — that's the right idea."
 - "Not quite on that part, but the rest of the approach is solid.\""""
         response_field_note = ", and NO question mark anywhere in it"
+    elif attempts == 2:
+        style_illustrations = """- "Take a closer look at how error states propagate up from that function."
+- "Think about what happens if the API returns a non-200 — where does that get handled right now?"
+- "You're on the right track — what would break if the sort were skipped?\""""
+        response_field_note = ""
     else:
         style_illustrations = """- "Yeah that's right. How does the data get from fetchEmployees to the UI?"
 - "Close enough — the approach works. Walk me through what useEmployees is doing."
@@ -397,6 +412,7 @@ Conversation so far:
 Your last question: "{last_agent or '(none)'}"
 Candidate just answered: "{utterance}"
 Current rubric stage: {stage}
+{stages_done}
 Times this area has been probed: {attempts}
 
 {instruction}
@@ -441,7 +457,7 @@ async def _validate_claim(
     meta: dict, code: str, utterance: str,
     history: str, stage: int, guidelines: str, attempts: int = 1
 ) -> str:
-    force_advance = attempts >= 2
+    force_advance = attempts >= 3
 
     user = f"""Interview rubric:
 {guidelines or "(no rubric provided)"}

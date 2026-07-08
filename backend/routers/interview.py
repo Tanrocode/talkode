@@ -85,15 +85,23 @@ async def interview_ws(websocket: WebSocket, session_id: str):
         except Exception as e:
             print(f"[utterance_end] error: {e}")
 
+    async def on_speech_started(self, **kwargs):
+        # Candidate started speaking — stop any in-progress TTS audio on the frontend.
+        try:
+            await websocket.send_json({"type": "agent_interrupt"})
+        except Exception:
+            pass
+
     dg_connection.on(LiveTranscriptionEvents.Transcript, on_transcript)
     dg_connection.on(LiveTranscriptionEvents.UtteranceEnd, on_utterance_end)
+    dg_connection.on(LiveTranscriptionEvents.SpeechStarted, on_speech_started)
 
     options = LiveOptions(
         model="nova-2",
         language="en-US",
         punctuate=True,
         interim_results=True,
-        utterance_end_ms="1500",
+        utterance_end_ms="2500",
         vad_events=True,
         encoding="linear16",
         sample_rate=16000,

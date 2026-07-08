@@ -115,6 +115,12 @@ _PREAMBLES: dict[str, str] = {
         "var _ = sort.Ints\n"
         "var _ = strings.Join\n"
     ),
+    "ruby": "require 'json'\n",
+    "rust": (
+        "use std::collections::HashMap;\n"
+        "use std::collections::HashSet;\n"
+        "use std::collections::BTreeMap;\n"
+    ),
 }
 
 

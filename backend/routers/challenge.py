@@ -204,10 +204,10 @@ Candidate's submitted code (language: {language}):
 
 Grade this on a 0-4 scale:
 0 = blank or no real attempt
-1 = far below — wrong approach or doesn't address the problem
-2 = partial — reasonable attempt but incorrect or notably inefficient
-3 = correct and reasonably efficient
-4 = correct, efficient, and clean
+1 = far below — wrong approach or fundamentally doesn't address the problem
+2 = partial — plausible approach but has a logical bug OR is notably inefficient (e.g. O(n²) where O(n) is straightforward)
+3 = correct and reasonably clean — correct data structures, working logic, readable variable names; minor style suggestions do NOT lower this to a 2
+4 = correct, efficient, and notably clean — optimal complexity, clear naming, well-structured without redundancy
 
 Return a JSON object with exactly these fields:
 {{
@@ -387,7 +387,7 @@ async def submit_challenge(session_id: str, body: ChallengeSubmitBody):
     code_raw = await r.get(f"session:{session_id}:latest_code")
     code = code_raw or "(no code written yet)"
     stage = await get_stage(session_id, r)
-    history = await get_conversation_history(session_id, r)
+    history = await get_conversation_history(session_id, r, n=20)
     history_text = _format_history(history)
     guidelines = meta.get("question_guidelines", "")
     try:

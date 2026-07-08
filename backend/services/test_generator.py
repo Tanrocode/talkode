@@ -29,11 +29,15 @@ _LANG_NOTES = {
     "javascript": (
         "Node.js (CommonJS). The candidate's code defines a function or class at the top level. "
         "Call the function directly (or instantiate the class). "
-        "Use `process.stdout.write(JSON.stringify(results) + '\\n')` for output."
+        "Use `process.stdout.write(JSON.stringify(results) + '\\n')` for output. "
+        "Do NOT add `import` or `require()` calls — all Node.js builtins (JSON, process, console) "
+        "are available without imports."
     ),
     "typescript": (
         "TypeScript compiled to Node.js. Treat identically to JavaScript. "
-        "Avoid type annotations in the harness — they will run through ts-node."
+        "Do NOT add `import` or `require()` calls. "
+        "Do NOT add any TypeScript type annotations in the harness — write plain JavaScript "
+        "that ts-node happens to accept."
     ),
     "java": (
         "Java. The file is compiled as Main.java. The candidate's code defines a class `Solution`. "
@@ -41,40 +45,57 @@ _LANG_NOTES = {
         "the main class MUST be named `Main` (not Runner, not public class anything else). "
         "Instantiate Solution, run tests, print a JSON array via System.out.println. "
         "Build the JSON string manually using StringBuilder. "
-        "Do NOT add any import statements — they are already at the top of the file."
+        "Do NOT add any import statements — they are already at the top of the file. "
+        "Keep the entire harness under 60 lines. StringBuilder appends must each be ≤ 80 chars per line."
     ),
     "cpp": (
         "C++17. The candidate's code defines a class `Solution`. "
         "Add a `int main()` function below that instantiates `Solution`, runs tests, "
-        "and prints a JSON array. Build JSON output manually as a string. "
-        "Do NOT add any #include or using statements — they are already at the top of the file."
+        "and prints a JSON array. Build JSON output via explicit `std::string` concatenation. "
+        "Do NOT add any #include or using statements — they are already at the top of the file. "
+        "CRITICAL: NEVER use `auto` as a return type for any function or lambda — always declare "
+        "the return type explicitly (e.g., `std::string safe(const std::string& v)`). "
+        "NEVER mix `const char*` string literals with `std::string` variables in the same expression "
+        "— use `std::string{\"literal\"}` for any string literal that appears next to a `std::string`."
     ),
     "csharp": (
         "C# (.NET). The candidate's code defines a class `Solution`. "
         "Add a `public class Runner { public static void Main() { ... } }` class below that "
         "instantiates `Solution`, runs tests, and prints JSON via `Console.WriteLine`. "
-        "Build the JSON string manually. Do NOT add any using statements — they are already at the top."
+        "Build the JSON string manually. Do NOT add any using statements — they are already at the top. "
+        "NEVER use C# string interpolation (`$\"...\"`) for JSON output — curly braces inside JSON "
+        "conflict with the interpolation syntax and cause CS1003 errors. "
+        "Use plain string concatenation (`+`) or `string.Format(\"{0}\", val)` instead."
     ),
     "go": (
         "Go. The candidate's code defines solution functions (no package declaration). "
         "Add a `func main()` that calls the solution functions, builds a JSON array, "
-        "and prints it. Use `fmt.Println` and `encoding/json`. "
-        "Do NOT add package or import statements — they are already at the top of the file."
+        "and prints it. Use `fmt.Println` for output. "
+        "Do NOT add package or import statements — they are already at the top of the file. "
+        "Prefer building JSON strings manually with `fmt.Sprintf` rather than using `json.Marshal` "
+        "on complex or candidate-defined types — unexported fields may not marshal correctly."
     ),
     "rust": (
         "Rust. The candidate's code defines a `struct Solution` and `impl Solution`. "
         "Add a `fn main()` that instantiates `Solution`, runs tests, and prints JSON. "
-        "`serde_json` is NOT available — build the JSON string manually."
+        "`serde_json` is NOT available — build the JSON string manually. "
+        "You MAY add `use` statements for standard library items you need (e.g., `use std::collections::HashMap;`). "
+        "Use `String::from(\"text\")` — never bare `\"text\"` where a `String` type is expected. "
+        "Use `format!()` for string concatenation — the `+` operator moves ownership and causes borrow errors. "
+        "Use `i64` for all integer results to avoid overflow."
     ),
     "php": (
         "PHP 8. The candidate's code defines a class `Solution`. "
         "Append PHP code that instantiates `Solution`, runs tests, and echoes a JSON array "
-        "via `echo json_encode($results);`."
+        "via `echo json_encode($results);`. "
+        "Add `error_reporting(0);` as the FIRST statement in the harness to prevent PHP warnings "
+        "and notices from corrupting stdout JSON."
     ),
     "ruby": (
         "Ruby. The candidate's code defines a class `Solution`. "
         "Append Ruby code that instantiates `Solution`, runs tests, and prints JSON "
-        "via `puts results.to_json`. Require 'json' at the top of the harness."
+        "via `puts JSON.generate(results)`. Do NOT add `require 'json'` — it is already "
+        "prepended before the candidate's code."
     ),
 }
 
@@ -166,6 +187,7 @@ The runner must:
    - For Java/C++/C#: wrap ALL test calls in one outer try/catch and print whatever you have so far on error. Keep the catch block to 1 simple line — never put a long JSON string literal in a catch clause (it will break if truncated).
    - The fallback output should be SHORT: e.g. `System.out.println("[]");` or `cout << "[]";` — not a full JSON error object.
 8. Keep the harness as concise as possible. Avoid long helper comments or repeated boilerplate. Every token counts.
+9. CRITICAL: Keep the entire harness under 65 lines total. If the problem has many examples, use only the first 3 visible tests and at most 4 hidden tests. Truncated harnesses cause compile errors.
 
 Here is a complete Python example for Two Sum to illustrate the required output format and structure:
 {_PYTHON_EXAMPLE}

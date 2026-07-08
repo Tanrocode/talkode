@@ -99,6 +99,7 @@ export function useInterviewSession() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const agentAudioRef = useRef<HTMLAudioElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const videoStreamRef = useRef<MediaStream | null>(null);
@@ -124,16 +125,19 @@ export function useInterviewSession() {
     const blob = new Blob([bytes], { type: "audio/mpeg" });
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
+    agentAudioRef.current = audio;
     setSpeaking(true);
     audio.onended = () => {
+      agentAudioRef.current = null;
       setSpeaking(false);
       URL.revokeObjectURL(url);
     };
     audio.onerror = () => {
+      agentAudioRef.current = null;
       setSpeaking(false);
       URL.revokeObjectURL(url);
     };
-    audio.play().catch(() => setSpeaking(false));
+    audio.play().catch(() => { agentAudioRef.current = null; setSpeaking(false); });
   }, []);
 
   const announceAgentText = useCallback(
@@ -350,16 +354,25 @@ export function useInterviewSession() {
             const blob = new Blob([bytes], { type: "audio/mpeg" });
             const url = URL.createObjectURL(blob);
             const audio = new Audio(url);
+            agentAudioRef.current = audio;
             setSpeaking(true);
             audio.onended = () => {
+              agentAudioRef.current = null;
               setSpeaking(false);
               URL.revokeObjectURL(url);
             };
             audio.onerror = () => {
+              agentAudioRef.current = null;
               setSpeaking(false);
               URL.revokeObjectURL(url);
             };
-            audio.play().catch(() => setSpeaking(false));
+            audio.play().catch(() => { agentAudioRef.current = null; setSpeaking(false); });
+          } else if (payload.type === "agent_interrupt") {
+            if (agentAudioRef.current) {
+              agentAudioRef.current.pause();
+              agentAudioRef.current = null;
+            }
+            setSpeaking(false);
           } else if (
             payload.type === "agent_intro" ||
             payload.type === "agent_response"

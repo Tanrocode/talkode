@@ -168,7 +168,12 @@ Return a JSON object with exactly these fields:
       "question": "{(
         "must be one of the canonical scoring topics listed above, verbatim"
     ) if rubric_topics else "short question title matching the rubric heading, e.g. Q1: API Layer"}",
-      "score": <integer 0-4, where 0 = not reached/no evidence, 1 = far below expectations, 2 = partial understanding, 3 = meets expectations (equivalent to old "pass"), 4 = exceeds expectations with exceptional depth/clarity>,
+      "score": <integer 0-4, where:
+        0 = not reached in session / no meaningful response at all,
+        1 = significant confusion — named the wrong concept, missed the point entirely, or needed the answer essentially given to them,
+        2 = partial — got the general area right but missed a key component even after being nudged by the interviewer; did not fully close the gap,
+        3 = correctly identified the core concept and answered accurately — edge cases or optimizations may be missing but the substance is right,
+        4 = exceptional depth: proactively identified trade-offs, edge cases, or optimizations unprompted>,
       "reason": "1-3 sentences citing specific evidence or direct quotes from the conversation that justify this score"
     }},
     ...
@@ -191,8 +196,9 @@ candidate who explains themselves well but gets the substance wrong should not a
 communication alone.
 - advance_recommend = false if ANY single rubric area scored 0-1 for ANY reason — including "not reached in
   session". A rubric area scored 0 means the candidate did not demonstrate that competency; the interview agent
-  is designed to cover the entire rubric, so "not reached" is a gap, not an exemption. Also false if two or
-  more areas scored 2.
+  is designed to cover the entire rubric, so "not reached" is a gap, not an exemption. Also false if three or
+  more areas scored 2 (one or two 2s with otherwise 3-4s reflects a strong candidate who missed a detail —
+  that should not block advancement on its own).
 - advance_recommend = true only if most rubric areas scored 3-4, with at most one area at 2, and NO area at 0-1.
 - If a mid-interview coding challenge score is present, weigh it the same as any other rubric area under the
   rule above — a low challenge score counts as a gap like any other, it does not get special leniency for being
@@ -201,21 +207,23 @@ communication alone.
   and performance despite strong API/data-flow understanding"), not a generic statement about communication.
 
 For rubric_scores: {(
-        "score every canonical topic listed above on the 0-4 scale, by grading the candidate against whatever part "
-        "of the full rubric text that topic corresponds to (Pass ≈ 3-4, Partial ≈ 2, Fail ≈ 0-1). Return exactly "
-        "one entry per canonical topic, using its title verbatim as \"question\" — never invent, split, merge, or "
-        "rename topics. Every score above 0 must be justified by something the CANDIDATE actually said in the "
-        "conversation above — not by what a good candidate would likely have said, and not by inference from the "
-        "codebase or task description alone. If a topic was never reached or the candidate never addressed it, "
-        "score it 0 with reason \"not reached in session\"."
+        "score every canonical topic listed above on the 0-4 scale (see the score descriptions in the rubric_scores "
+        "field above). Return exactly one entry per canonical topic, using its title verbatim as \"question\" — "
+        "never invent, split, merge, or rename topics. "
+        "Calibration: score 3 when the candidate correctly identified the core concept even if they missed an "
+        "optimization or edge case. Score 2 only when they missed a key component even after being nudged. "
+        "Every score above 0 must be justified by something the CANDIDATE actually said in the conversation above — "
+        "not by what a good candidate would likely have said, and not by inference from the codebase alone. "
+        "If a topic was never reached or the candidate never addressed it, score it 0 with reason \"not reached in session\"."
     ) if rubric_topics else (
-        "score every question in the rubric on the 0-4 scale, mapping the rubric's Pass/Partial/Fail criteria onto it "
-        "(Pass ≈ 3-4, Partial ≈ 2, Fail ≈ 0-1). Use ONLY the questions explicitly listed in the Rubric section above — "
-        "never invent additional questions from the README, the code, or the candidate task description, even if they "
-        "suggest plausible categories. Every score above 0 must be justified by something the CANDIDATE actually said "
-        "in the conversation above — not by what a good candidate would likely have said, and not by inference from the "
-        "codebase or task description alone. If a rubric question was never reached or the candidate never addressed "
-        "it, score it 0 with reason \"not reached in session\"."
+        "score every question in the rubric on the 0-4 scale (see the score descriptions in the rubric_scores "
+        "field above). Use ONLY the questions explicitly listed in the Rubric section above — never invent additional "
+        "questions from the README, the code, or the candidate task description. "
+        "Calibration: score 3 when the candidate correctly identified the core concept even if they missed an "
+        "optimization or edge case. Score 2 only when they missed a key component even after being nudged. "
+        "Every score above 0 must be justified by something the CANDIDATE actually said in the conversation above — "
+        "not by inference from the codebase or task description alone. "
+        "If a rubric question was never reached or the candidate never addressed it, score it 0 with reason \"not reached in session\"."
     ) if has_rubric else (
         "this assessment has no rubric configured (see the Rubric section above), so you MUST return an empty array "
         "for rubric_scores. Do not invent rubric questions from the README, the code, or the candidate task "
