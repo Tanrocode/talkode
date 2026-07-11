@@ -50,24 +50,7 @@ TOPIC_WEIGHTS = {
 
 DIFFICULTY_WEIGHTS = {"Easy": 2, "Medium": 3, "Hard": -3}
 
-# One-line framing per topic, prepended to the (untouched) original description
-# so the problem reads like it matters to this platform without changing any
-# test data, examples, or constraints.
-TOPIC_FRAMING = {
-    "Hash Table": "Our session store does a lot of key lookups under the hood — implement the structure that keeps those fast.",
-    "Design": "We're prototyping a small piece of internal infrastructure for this platform — implement it below.",
-    "Heap (Priority Queue)": "The backend needs to track pending work without re-sorting everything each time it changes — implement the structure that makes that efficient.",
-    "Sliding Window": "Our live transcript buffer streams in chunks and needs a tight window over recent activity — implement the algorithm that maintains that efficiently.",
-    "Two Pointers": "We need a fast, low-memory pass over ordered session data — implement the approach below.",
-    "Binary Search": "We need to search a large, sorted log of interview events quickly — implement the lookup below.",
-    "Queue": "Audio chunks sometimes arrive faster than they're processed — we need a structure that handles that backlog efficiently. Implement it below.",
-    "Stack": "We need to track nested state cleanly and efficiently as events come in — implement the structure below.",
-    "Linked List": "Part of our pipeline needs fast insertion and removal without shifting everything else around — implement it below.",
-    "Trie": "We're matching candidate input against a large set of known terms efficiently — implement the structure below.",
-    "Sorting": "We need to rank a batch of results efficiently before showing them to a recruiter — implement the approach below.",
-}
-
-DEFAULT_FRAMING = "This one's about squeezing more efficiency out of a system at scale — implement it below."
+DEFAULT_FRAMING = "Here's a problem that exercises a core data structure concept — implement it below."
 
 # Dataset language key -> {our internal id, display label}. Only languages we
 # can actually syntax-highlight client-side are exposed in the picker.
@@ -157,9 +140,7 @@ def _score(problem: dict) -> float:
 
 
 def _framing_for(problem: dict) -> str:
-    topics = problem.get("topics") or []
-    best_topic = max(topics, key=lambda t: TOPIC_WEIGHTS.get(t, 0), default=None)
-    return TOPIC_FRAMING.get(best_topic, DEFAULT_FRAMING)
+    return DEFAULT_FRAMING
 
 
 def _build_challenge(problem: dict) -> dict:

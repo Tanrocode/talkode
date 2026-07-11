@@ -26,7 +26,7 @@ from services.tts import synthesize
 router = APIRouter(prefix="/session", tags=["challenge"])
 
 
-async def _evaluate_candidate(problem: dict, codebase_context: str) -> dict:
+async def _evaluate_candidate(problem: dict, codebase_context: str, recent_convo: str = "") -> dict:
     """Single LLM pass that decides whether a picked question is worth using:
 
     1. Relevance — does it touch on something that plausibly relates to the
@@ -45,10 +45,15 @@ async def _evaluate_candidate(problem: dict, codebase_context: str) -> dict:
     examples_text = "\n".join(e.get("example_text", "") for e in problem.get("examples") or [])
     constraints_text = "\n".join(problem.get("constraints") or [])
 
+    convo_section = (
+        f"\nRecent interview conversation (what was just discussed before this coding detour):\n{recent_convo}"
+        if recent_convo else ""
+    )
+
     prompt = f"""You are screening a coding-interview question before it's shown to a candidate, mid-interview.
 
 Candidate's actual codebase / assessment context:
-{codebase_context or "(no codebase context available)"}
+{codebase_context or "(no codebase context available)"}{convo_section}
 
 Candidate question being considered:
 Title: {problem.get("title")}
@@ -90,11 +95,16 @@ Evaluate two things:
    - "broken": the gap is more than a small mechanical fix, the description is essentially just examples with no
      problem statement, or the question is confusing/ambiguous/missing information needed to solve it.
 
-3. FRAMING: if the problem is relevant, write one sentence (≤20 words) that a human interviewer would say
-   to bridge from the candidate's codebase to this problem. Reference something concrete from the codebase
-   context — a specific file, component, or behaviour the candidate just discussed. Do NOT say "our session
-   store" or anything generic. Example: "Your fetchEmployees function does a lot of repeated lookups —
-   let's try a data structure problem that keeps those fast."
+3. FRAMING: if the problem is relevant, write one sentence that a human interviewer would say OUT LOUD
+   to transition from the conversation above into this coding problem. Use the recent conversation to
+   make it specific — reference something the candidate JUST said, a file they mentioned, or a concept
+   they just explained. The sentence should feel like a natural continuation of the interview, not a
+   canned transition. Keep it under 25 words.
+   Rules:
+   - DO reference something from the recent conversation (a function name, a concept, a file they mentioned)
+   - DO NOT use generic phrases like "our session store", "this platform", "systems at scale", or "under the hood"
+   - DO NOT start with "This project" or "Our system"
+   Example: "You mentioned fetchEmployees does repeated lookups — here's a problem that explores a structure that keeps those fast."
 
 Return a JSON object with exactly these fields:
 {{
@@ -270,10 +280,17 @@ async def start_challenge(session_id: str, background_tasks: BackgroundTasks):
     if not pool:
         raise HTTPException(status_code=503, detail="No coding challenge available")
 
+    # Pull the last 6 conversation turns so the framing can reference what was just discussed.
+    history_raw = await r.lrange(f"session:{session_id}:conversation_history", -6, -1)
+    recent_convo = "\n".join(
+        f"{'Interviewer' if json.loads(h)['role'] == 'agent' else 'Candidate'}: {json.loads(h)['text']}"
+        for h in history_raw
+    )
+
     problem = None
     chosen_framing = None
     for candidate in pool:
-        verdict = await _evaluate_candidate(candidate, codebase_context)
+        verdict = await _evaluate_candidate(candidate, codebase_context, recent_convo)
         if not verdict.get("relevant") or verdict["status"] == "broken":
             print(f"[challenge] skipped {candidate['title']!r}: {verdict.get('reason')}")
             continue
